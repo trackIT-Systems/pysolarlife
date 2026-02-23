@@ -47,7 +47,7 @@ class ResultContainer:
         else:
             raise TypeError("Key must be a variable name string.")
 
-class LumiaxClient:
+class MpptProtocol:
     def __init__(self):
         self.device_id = 0xFE
 

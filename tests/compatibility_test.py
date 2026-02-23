@@ -4,7 +4,7 @@ import unittest
 import sys
 sys.path.append("..")
 
-from src.variables import variables
+from solarlife.variables import variables
 
 class TestCompat(unittest.TestCase):
     def test_includes_names(self):

@@ -2,13 +2,13 @@ import unittest
 import sys
 sys.path.append("..")
 
-from src.variables import variables
-from src.protocol import LumiaxClient, Result
+from solarlife.variables import variables
+from solarlife.protocol import MpptProtocol, Result
 
 class TestTransaction(unittest.TestCase):
 
     def setUp(self):
-        self.client = LumiaxClient()
+        self.client = MpptProtocol()
 
     def test_1(self):
         device_id = 0x01
