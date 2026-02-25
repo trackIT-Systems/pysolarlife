@@ -1,6 +1,9 @@
 import asyncio
+import logging
 from bleak import BleakClient, BleakScanner
 from bleak.backends.characteristic import BleakGATTCharacteristic
+from bleak.backends.device import BLEDevice
+from bleak.backends.scanner import AdvertisementData
 
 from .protocol import MpptProtocol, ResultContainer, Result
 
@@ -9,6 +12,7 @@ class MpptClient(MpptProtocol):
     DEVICE_NAME_UUID = "00002a00-0000-1000-8000-00805f9b34fb"
     NOTIFY_UUID = "0000ff01-0000-1000-8000-00805f9b34fb"
     WRITE_UUID = "0000ff02-0000-1000-8000-00805f9b34fb"
+    MANUFACTURER_ID = 0x03A0  # SolarLife Manufacturer ID (Company ID)
 
     buffer = bytearray()
 
@@ -19,7 +23,11 @@ class MpptClient(MpptProtocol):
         super().__init__()
 
     async def __aenter__(self):
-        await self.client.connect()
+        try:
+            await self.client.connect()
+        except TimeoutError:
+            raise TimeoutError(f"Connection timeout: Could not connect to device {self.client.address}. "
+                             f"Please ensure the device is powered on, in range, and not connected to another application.")
         await self.client.start_notify(self.NOTIFY_UUID, self.notification_handler)
         return self
 
@@ -40,8 +48,8 @@ class MpptClient(MpptProtocol):
             results = self.parse(self.start_address, self.buffer)
             self.response_queue.put_nowait(results)
         except Exception as e:
-            print(f"Response from device: 0x{self.buffer.hex()}")
-            print(f"Error while parsing response: {e}")
+            logging.debug(f"Response from device: 0x{self.buffer.hex()}")
+            logging.error(f"Error while parsing response: {e}")
 
     async def read(self, start_address: int, count: int, repeat: int = 10, timeout: float = 2) -> ResultContainer:
         async with self.lock:
@@ -49,6 +57,7 @@ class MpptClient(MpptProtocol):
             command = self.get_read_command(0xFE, start_address, count)
             self.response_queue = asyncio.Queue()
             i = 0
+            partial_results = ResultContainer([])
             while i < repeat:
                 i += 1
                 self.buffer = bytearray()
@@ -57,8 +66,30 @@ class MpptClient(MpptProtocol):
                     return await asyncio.wait_for(self.response_queue.get(), timeout=timeout)
                 except asyncio.TimeoutError:
                     if self.buffer:
-                        print(f"Got partial response: 0x{self.buffer.hex()}")
-                    print(f"Repeating read command...")
+                        logging.debug(f"Got partial response: 0x{self.buffer.hex()}")
+                        # Try to parse partial data if we have enough
+                        try:
+                            if self.is_complete(self.buffer):
+                                partial_results = self.parse(self.start_address, self.buffer)
+                                return partial_results
+                            # If buffer is not complete but has some data, try to parse what we can
+                            elif len(self.buffer) >= 4:
+                                # Try to parse partial data - this might fail but worth trying
+                                try:
+                                    partial_results = self.parse(self.start_address, self.buffer)
+                                    if partial_results:
+                                        logging.debug(f"Successfully parsed partial data ({len(partial_results)} results)")
+                                        return partial_results
+                                except Exception:
+                                    pass  # Partial data not parseable, continue retrying
+                        except Exception as e:
+                            logging.debug(f"Could not parse partial response: {e}")
+                    if i < repeat:
+                        logging.debug(f"Repeating read command... (attempt {i+1}/{repeat})")
+            # Return any partial results we managed to parse, even if incomplete
+            if partial_results:
+                logging.debug(f"Returning partial data: {len(partial_results)} results")
+                return partial_results
             return ResultContainer([])
 
     async def read_status(self) -> ResultContainer:
@@ -84,8 +115,8 @@ class MpptClient(MpptProtocol):
                     return ResultContainer(results)
                 except asyncio.TimeoutError:
                     if self.buffer:
-                        print(f"Got partial response: 0x{self.buffer.hex()}")
-                    print(f"Repeating write command...")
+                        logging.debug(f"Got partial response: 0x{self.buffer.hex()}")
+                    logging.debug(f"Repeating write command...")
             return ResultContainer([])
 
     async def get_device_name(self) -> str:
@@ -98,18 +129,61 @@ class MpptClient(MpptProtocol):
         descrip_text = "    [Descriptor]   "
         value_text   = "      Value = "
         for service in self.client.services:
-            print(service_text, service)
+            logging.info(f"{service_text}{service}")
             for char in service.characteristics:
-                print(charact_text, char, ",".join(char.properties))
+                logging.info(f"{charact_text}{char} {','.join(char.properties)}")
                 for descriptor in char.descriptors:
                     try:
-                        print(descrip_text, descriptor)
+                        logging.info(f"{descrip_text}{descriptor}")
                         value = await self.client.read_gatt_descriptor(descriptor.handle)
-                        print(value_text, "0x" + value.hex())
+                        logging.info(f"{value_text}0x{value.hex()}")
                     except Exception as e:
                         pass
 
     @staticmethod
-    async def scan() -> list:
-        """Scan for nearby BLE devices and return a list of discovered devices."""
-        return await BleakScanner.discover()
+    async def scan(timeout: float = 10.0, filter_devices: bool = True) -> list:
+        """
+        Scan for SolarLife MPPT devices by Manufacturer ID 0x03A0.
+        
+        Args:
+            timeout: Scan timeout in seconds (default: 10.0)
+            filter_devices: If True, only return SolarLife devices (filtered by Manufacturer ID 0x03A0).
+                           If False, return all discovered devices.
+        
+        Returns:
+            List of BLEDevice objects matching the filter criteria.
+        """
+        discovered_devices = {}
+        
+        def detection_callback(device: BLEDevice, advertisement_data: AdvertisementData):
+            """Callback function called for each advertisement received."""
+            try:
+                if filter_devices:
+                    # Check for Manufacturer ID 0x03A0 in advertisement data
+                    if advertisement_data.manufacturer_data:
+                        if MpptClient.MANUFACTURER_ID in advertisement_data.manufacturer_data:
+                            # Store device (using address as key to handle duplicates)
+                            discovered_devices[device.address] = device
+                else:
+                    # Return all devices
+                    discovered_devices[device.address] = device
+            except Exception as e:
+                # Log but continue scanning even if callback fails
+                logging.debug(f"Error in detection callback for {device.address}: {e}")
+        
+        scanner = None
+        try:
+            scanner = BleakScanner(detection_callback=detection_callback)
+            await scanner.start()
+            await asyncio.sleep(timeout)
+        except Exception as e:
+            logging.error(f"Error during BLE scan: {e}")
+            raise
+        finally:
+            if scanner:
+                try:
+                    await scanner.stop()
+                except Exception as e:
+                    logging.debug(f"Error stopping scanner: {e}")
+        
+        return list(discovered_devices.values())
