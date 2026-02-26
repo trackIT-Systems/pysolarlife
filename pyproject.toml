@@ -8,7 +8,7 @@ authors = [
   {name = "subDesTagesMitExtraKaese"},
   {name = "Jonas Höchst", email = "hoechst@trackit.systems"}
 ]
-version = "0.1.0"
+version = "0.2.0"
 description = "Python library for reading Solarlife MPPT solar charge controllers over BLE"
 readme = "README.md"
 license = "MIT"
@@ -19,7 +19,7 @@ dependencies = [
 ]
 
 [project.urls]
-Repository = "https://github.com/trackit-systems/solarlife-mppt-ble-client"
+Repository = "https://github.com/trackIT-Systems/pysolarlife"
 
 [project.scripts]
 solarlife = "solarlife.cli:main"
