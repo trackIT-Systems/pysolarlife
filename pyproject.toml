@@ -21,5 +21,8 @@ dependencies = [
 [project.urls]
 Repository = "https://github.com/trackit-systems/solarlife-mppt-ble-client"
 
+[project.scripts]
+solarlife = "solarlife.cli:main"
+
 [tool.setuptools.packages.find]
 include = ["solarlife*"]

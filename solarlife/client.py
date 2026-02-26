@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from collections.abc import Callable
 from bleak import BleakClient, BleakScanner
 from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.backends.device import BLEDevice
@@ -16,8 +17,8 @@ class MpptClient(MpptProtocol):
 
     buffer = bytearray()
 
-    def __init__(self, mac_address: str):
-        self.client = BleakClient(mac_address)
+    def __init__(self, mac_address: str, timeout: float = 30.0):
+        self.client = BleakClient(mac_address, timeout=timeout)
         self.response_queue = asyncio.Queue()
         self.lock = asyncio.Lock()
         super().__init__()
@@ -141,7 +142,11 @@ class MpptClient(MpptProtocol):
                         pass
 
     @staticmethod
-    async def scan(timeout: float = 10.0, filter_devices: bool = True) -> list:
+    async def scan(
+        timeout: float = 10.0,
+        filter_devices: bool = True,
+        on_found: Callable[[BLEDevice, AdvertisementData], None] | None = None,
+    ) -> list[tuple[BLEDevice, AdvertisementData]]:
         """
         Scan for SolarLife MPPT devices by Manufacturer ID 0x03A0.
         
@@ -149,24 +154,33 @@ class MpptClient(MpptProtocol):
             timeout: Scan timeout in seconds (default: 10.0)
             filter_devices: If True, only return SolarLife devices (filtered by Manufacturer ID 0x03A0).
                            If False, return all discovered devices.
+            on_found: Optional callback called immediately when a new device is first discovered.
+                     Called with (device, advertisement_data) tuple.
         
         Returns:
-            List of BLEDevice objects matching the filter criteria.
+            List of (BLEDevice, AdvertisementData) tuples matching the filter criteria.
         """
-        discovered_devices = {}
+        discovered_devices: dict[str, tuple[BLEDevice, AdvertisementData]] = {}
         
         def detection_callback(device: BLEDevice, advertisement_data: AdvertisementData):
             """Callback function called for each advertisement received."""
             try:
+                is_solarlife = False
                 if filter_devices:
                     # Check for Manufacturer ID 0x03A0 in advertisement data
                     if advertisement_data.manufacturer_data:
                         if MpptClient.MANUFACTURER_ID in advertisement_data.manufacturer_data:
-                            # Store device (using address as key to handle duplicates)
-                            discovered_devices[device.address] = device
+                            is_solarlife = True
                 else:
-                    # Return all devices
-                    discovered_devices[device.address] = device
+                    is_solarlife = True
+                
+                if is_solarlife:
+                    # Store device (using address as key to handle duplicates)
+                    # Only call on_found for newly discovered devices
+                    if device.address not in discovered_devices:
+                        discovered_devices[device.address] = (device, advertisement_data)
+                        if on_found:
+                            on_found(device, advertisement_data)
             except Exception as e:
                 # Log but continue scanning even if callback fails
                 logging.debug(f"Error in detection callback for {device.address}: {e}")

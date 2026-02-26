@@ -35,9 +35,12 @@ asyncio.run(main())
 
 ## API
 
-### `MpptClient(mac_address)`
+### `MpptClient(mac_address, timeout=30.0)`
 
 Async context manager that connects to the charge controller over BLE.
+
+- `mac_address` — BLE address of the device (e.g. `"AA:BB:CC:DD:EE:FF"`)
+- `timeout` — seconds to wait for the connection to be established (default: `30.0`). BlueZ uses this budget for its internal retries when the connection is aborted by the local adapter. Increase this value if you experience frequent timeouts.
 
 ```python
 async with MpptClient("AA:BB:CC:DD:EE:FF") as charger:
@@ -126,6 +129,42 @@ python examples/read_all.py --scan
 
 # Read all status registers from a device
 python examples/read_all.py AA:BB:CC:DD:EE:FF
+```
+
+## Troubleshooting
+
+### Connection timeouts on Raspberry Pi (or other single-chip WiFi+BT devices)
+
+**Symptom:** The connection fails repeatedly with messages like `le-connection-abort-by-local` or a timeout error, even though the device is clearly visible during the scan. The same device connects instantly from a mobile phone.
+
+**Root cause:** Raspberry Pi 4/5 (and similar boards) use a Broadcom/Cypress combo chip (BCM4345) that shares a single 2.4 GHz antenna between WiFi and Bluetooth. When a 2.4 GHz WiFi access point is active on that chip, it monopolises the radio and the BLE firmware returns `-EBUSY` on every connection attempt. The kernel will log this as:
+
+```
+Bluetooth: hci0: Opcode 0x2006 failed: -16
+```
+
+**Fix:** Move the WiFi AP to the 5 GHz band. WiFi at 5 GHz and Bluetooth operate in completely separate spectrum and will no longer interfere. With `nmcli`:
+
+```bash
+sudo nmcli con modify <hotspot-connection-name> \
+    802-11-wireless.band a \
+    802-11-wireless.channel 36
+sudo nmcli con up <hotspot-connection-name>
+```
+
+Or set `hw_mode=a` and an appropriate `channel` in your `wpa_supplicant` / `hostapd` configuration.
+
+**Workaround (if 5 GHz is not available):** Increase the connection timeout so BlueZ has a longer window to succeed between WiFi transmissions:
+
+```bash
+solarlife read AA:BB:CC:DD:EE:FF --timeout 60
+```
+
+Or in code:
+
+```python
+async with MpptClient("AA:BB:CC:DD:EE:FF", timeout=60.0) as charger:
+    ...
 ```
 
 ## License
