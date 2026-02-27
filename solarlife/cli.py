@@ -25,7 +25,7 @@ def setup_logging(verbose: bool, quiet: bool) -> None:
     logging.basicConfig(
         level=log_level,
         format="%(message)s",
-        stream=sys.stdout
+        stream=sys.stderr
     )
 
 
@@ -38,9 +38,9 @@ async def cmd_scan(timeout: float) -> None:
         name = device.name or "(no name)"
         rssi = advertisement_data.rssi if advertisement_data.rssi is not None else "N/A"
         if rssi != "N/A":
-            logging.info(f"{device.address}  {name}  RSSI: {rssi}dBm")
+            print(f"{device.address}  {name}  RSSI: {rssi}dBm")
         else:
-            logging.info(f"{device.address}  {name}")
+            print(f"{device.address}  {name}")
     
     devices = await MpptClient.scan(timeout=timeout, filter_devices=True, on_found=on_found)
     
@@ -112,7 +112,7 @@ async def cmd_read(
                 # Format as text table
                 for result in all_results:
                     unit = f" {result.unit}" if result.unit else ""
-                    logging.info(f"{result.friendly_name}: {result.value}{unit}")
+                    print(f"{result.friendly_name}: {result.value}{unit}")
                     
     except TimeoutError as e:
         logging.warning(f"Timeout occurred: {e}")
@@ -126,7 +126,7 @@ async def cmd_read(
                         logging.info(f"Successfully parsed {len(partial_results)} partial results:")
                         for result in partial_results:
                             unit = f" {result.unit}" if result.unit else ""
-                            logging.info(f"  {result.friendly_name}: {result.value}{unit}")
+                            print(f"  {result.friendly_name}: {result.value}{unit}")
             except Exception as parse_error:
                 logging.debug(f"Could not parse partial data: {parse_error}")
         else:
