@@ -1,12 +1,68 @@
 import asyncio
 import logging
 from collections.abc import Callable
+
+logger = logging.getLogger(__name__)
 from bleak import BleakClient, BleakScanner
 from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.backends.device import BLEDevice
 from bleak.backends.scanner import AdvertisementData
 
 from .protocol import MpptProtocol, ResultContainer, Result
+
+
+def _results_to_dict(results: ResultContainer) -> dict:
+    return {
+        (f"{r.friendly_name} ({r.unit})" if r.unit else r.friendly_name): r.value
+        for r in results
+    }
+
+
+async def _read_from_address(address: str, timeout: float) -> dict:
+    async with MpptClient(address, timeout=timeout) as charger:
+        status = await charger.read_status()
+        parameters = await charger.read_parameters()
+    return _results_to_dict(status + parameters)
+
+
+def read_device(
+    address: str | None = None,
+    scan_timeout: float = 10.0,
+    timeout: float = 30.0,
+) -> dict:
+    """Connect to a SolarLife device and return all readings as a dict.
+
+    If *address* is omitted, scans for devices and connects to the one with
+    the highest RSSI (strongest signal).  Keys follow the pattern
+    ``"Friendly Name (unit)"`` matching the ``--json`` CLI output.
+
+    Args:
+        address: BLE MAC address.  If None, auto-selects via scan.
+        scan_timeout: Seconds to scan when auto-selecting a device.
+        timeout: BLE connection / read timeout in seconds.
+
+    Returns:
+        Dict mapping variable names (with units) to their values.
+
+    Raises:
+        RuntimeError: If no devices are found during a scan.
+    """
+    async def _run() -> dict:
+        if address is not None:
+            return await _read_from_address(address, timeout)
+
+        devices = await MpptClient.scan(timeout=scan_timeout, filter_devices=True)
+        if not devices:
+            raise RuntimeError("No SolarLife devices found during scan.")
+
+        device, _ = max(
+            devices,
+            key=lambda d: d[1].rssi if d[1].rssi is not None else float("-inf"),
+        )
+        logger.info(f"Connecting to device with highest RSSI: {device.address}")
+        return await _read_from_address(device.address, timeout)
+
+    return asyncio.run(_run())
 
 
 class MpptClient(MpptProtocol):
@@ -49,8 +105,8 @@ class MpptClient(MpptProtocol):
             results = self.parse(self.start_address, self.buffer)
             self.response_queue.put_nowait(results)
         except Exception as e:
-            logging.debug(f"Response from device: 0x{self.buffer.hex()}")
-            logging.error(f"Error while parsing response: {e}")
+            logger.debug(f"Response from device: 0x{self.buffer.hex()}")
+            logger.error(f"Error while parsing response: {e}")
 
     async def read(self, start_address: int, count: int, repeat: int = 10, timeout: float = 2) -> ResultContainer:
         async with self.lock:
@@ -67,7 +123,7 @@ class MpptClient(MpptProtocol):
                     return await asyncio.wait_for(self.response_queue.get(), timeout=timeout)
                 except asyncio.TimeoutError:
                     if self.buffer:
-                        logging.debug(f"Got partial response: 0x{self.buffer.hex()}")
+                        logger.debug(f"Got partial response: 0x{self.buffer.hex()}")
                         # Try to parse partial data if we have enough
                         try:
                             if self.is_complete(self.buffer):
@@ -79,17 +135,17 @@ class MpptClient(MpptProtocol):
                                 try:
                                     partial_results = self.parse(self.start_address, self.buffer)
                                     if partial_results:
-                                        logging.debug(f"Successfully parsed partial data ({len(partial_results)} results)")
+                                        logger.debug(f"Successfully parsed partial data ({len(partial_results)} results)")
                                         return partial_results
                                 except Exception:
                                     pass  # Partial data not parseable, continue retrying
                         except Exception as e:
-                            logging.debug(f"Could not parse partial response: {e}")
+                            logger.debug(f"Could not parse partial response: {e}")
                     if i < repeat:
-                        logging.debug(f"Repeating read command... (attempt {i+1}/{repeat})")
+                        logger.debug(f"Repeating read command... (attempt {i+1}/{repeat})")
             # Return any partial results we managed to parse, even if incomplete
             if partial_results:
-                logging.debug(f"Returning partial data: {len(partial_results)} results")
+                logger.debug(f"Returning partial data: {len(partial_results)} results")
                 return partial_results
             return ResultContainer([])
 
@@ -116,8 +172,8 @@ class MpptClient(MpptProtocol):
                     return ResultContainer(results)
                 except asyncio.TimeoutError:
                     if self.buffer:
-                        logging.debug(f"Got partial response: 0x{self.buffer.hex()}")
-                    logging.debug(f"Repeating write command...")
+                        logger.debug(f"Got partial response: 0x{self.buffer.hex()}")
+                    logger.debug(f"Repeating write command...")
             return ResultContainer([])
 
     async def get_device_name(self) -> str:
@@ -130,14 +186,14 @@ class MpptClient(MpptProtocol):
         descrip_text = "    [Descriptor]   "
         value_text   = "      Value = "
         for service in self.client.services:
-            logging.info(f"{service_text}{service}")
+            logger.info(f"{service_text}{service}")
             for char in service.characteristics:
-                logging.info(f"{charact_text}{char} {','.join(char.properties)}")
+                logger.info(f"{charact_text}{char} {','.join(char.properties)}")
                 for descriptor in char.descriptors:
                     try:
-                        logging.info(f"{descrip_text}{descriptor}")
+                        logger.info(f"{descrip_text}{descriptor}")
                         value = await self.client.read_gatt_descriptor(descriptor.handle)
-                        logging.info(f"{value_text}0x{value.hex()}")
+                        logger.info(f"{value_text}0x{value.hex()}")
                     except Exception as e:
                         pass
 
@@ -183,7 +239,7 @@ class MpptClient(MpptProtocol):
                             on_found(device, advertisement_data)
             except Exception as e:
                 # Log but continue scanning even if callback fails
-                logging.debug(f"Error in detection callback for {device.address}: {e}")
+                logger.debug(f"Error in detection callback for {device.address}: {e}")
         
         scanner = None
         try:
@@ -191,13 +247,13 @@ class MpptClient(MpptProtocol):
             await scanner.start()
             await asyncio.sleep(timeout)
         except Exception as e:
-            logging.error(f"Error during BLE scan: {e}")
+            logger.error(f"Error during BLE scan: {e}")
             raise
         finally:
             if scanner:
                 try:
                     await scanner.stop()
                 except Exception as e:
-                    logging.debug(f"Error stopping scanner: {e}")
+                    logger.debug(f"Error stopping scanner: {e}")
         
         return list(discovered_devices.values())

@@ -11,6 +11,9 @@ import sys
 from typing import Optional
 
 from solarlife import MpptClient
+from solarlife.client import _results_to_dict, _read_from_address
+
+logger = logging.getLogger(__name__)
 
 
 def setup_logging(verbose: bool, quiet: bool) -> None:
@@ -31,7 +34,7 @@ def setup_logging(verbose: bool, quiet: bool) -> None:
 
 async def cmd_scan(timeout: float) -> None:
     """Scan for SolarLife devices and print them as they appear."""
-    logging.info("Scanning for SolarLife MPPT devices (Manufacturer ID 0x03A0)...")
+    logger.info("Scanning for SolarLife MPPT devices (Manufacturer ID 0x03A0)...")
     
     def on_found(device, advertisement_data):
         """Print device immediately when discovered."""
@@ -45,7 +48,7 @@ async def cmd_scan(timeout: float) -> None:
     devices = await MpptClient.scan(timeout=timeout, filter_devices=True, on_found=on_found)
     
     if not devices:
-        logging.warning("No SolarLife devices found.")
+        logger.warning("No SolarLife devices found.")
 
 
 async def cmd_read(
@@ -56,90 +59,50 @@ async def cmd_read(
 ) -> None:
     """Read all available outputs from a SolarLife device."""
     device_address = address
-    
+
     # If no address provided, scan for highest RSSI device
     if not device_address:
-        logging.info(f"Scanning for SolarLife devices (timeout: {scan_timeout}s)...")
+        logger.info(f"Scanning for SolarLife devices (timeout: {scan_timeout}s)...")
         devices = await MpptClient.scan(timeout=scan_timeout, filter_devices=True)
-        
+
         if not devices:
-            logging.error("No SolarLife devices found during scan.")
+            logger.error("No SolarLife devices found during scan.")
             sys.exit(1)
-        
-        # Find device with highest RSSI
-        best_device = None
-        best_rssi = float('-inf')
-        for device, ad_data in devices:
-            rssi = ad_data.rssi if ad_data.rssi is not None else float('-inf')
-            if rssi > best_rssi:
-                best_rssi = rssi
-                best_device = device
-        
-        if best_device is None:
-            logging.error("No devices with RSSI information found.")
-            sys.exit(1)
-        
+
+        best_device, best_ad = max(
+            devices,
+            key=lambda d: d[1].rssi if d[1].rssi is not None else float("-inf"),
+        )
         device_address = best_device.address
-        logging.info(f"Connecting to device with highest RSSI: {device_address} ({best_rssi}dBm)")
-    
+        logger.info(f"Connecting to device with highest RSSI: {device_address} ({best_ad.rssi}dBm)")
+
     # Connect and read data
-    charger = None
     try:
-        charger = MpptClient(device_address, timeout=timeout)
-        async with charger:
-            # Read both status and parameters
-            status = await charger.read_status()
-            parameters = await charger.read_parameters()
-            
-            # Combine results
-            all_results = status + parameters
-            
-            if not all_results:
-                logging.warning("No data received.")
-                return
-            
-            if json_output:
-                # Format as JSON with composite keys
-                output = {}
-                for result in all_results:
-                    if result.unit:
-                        key = f"{result.friendly_name} ({result.unit})"
-                    else:
-                        key = result.friendly_name
-                    output[key] = result.value
-                print(json.dumps(output, indent=2))
-            else:
-                # Format as text table
-                for result in all_results:
-                    unit = f" {result.unit}" if result.unit else ""
-                    print(f"{result.friendly_name}: {result.value}{unit}")
+        all_results = await _read_from_address(device_address, timeout)
+
+        if not all_results:
+            logger.warning("No data received.")
+            return
+
+        if json_output:
+            print(json.dumps(_results_to_dict(all_results), indent=2))
+        else:
+            for result in all_results:
+                unit = f" {result.unit}" if result.unit else ""
+                print(f"{result.friendly_name}: {result.value}{unit}")
                     
     except TimeoutError as e:
-        logging.warning(f"Timeout occurred: {e}")
-        # Try to show partial data if available
-        if charger and hasattr(charger, 'buffer') and charger.buffer:
-            logging.debug(f"Partial data received before timeout: 0x{charger.buffer.hex()}")
-            try:
-                if hasattr(charger, 'start_address'):
-                    partial_results = charger.parse(charger.start_address, charger.buffer)
-                    if partial_results:
-                        logging.info(f"Successfully parsed {len(partial_results)} partial results:")
-                        for result in partial_results:
-                            unit = f" {result.unit}" if result.unit else ""
-                            print(f"  {result.friendly_name}: {result.value}{unit}")
-            except Exception as parse_error:
-                logging.debug(f"Could not parse partial data: {parse_error}")
-        else:
-            logging.warning("The device may be out of range or not responding.")
-            logging.info("Please check:")
-            logging.info("  - Device is powered on and in range")
-            logging.info("  - BLE address is correct")
-            logging.info("  - No other applications are connected to the device")
+        logger.warning(f"Timeout occurred: {e}")
+        logger.warning("The device may be out of range or not responding.")
+        logger.info("Please check:")
+        logger.info("  - Device is powered on and in range")
+        logger.info("  - BLE address is correct")
+        logger.info("  - No other applications are connected to the device")
         sys.exit(1)
     except Exception as e:
-        logging.error(f"Error occurred: {e}")
+        logger.error(f"Error occurred: {e}")
         import traceback
-        logging.debug(traceback.format_exc())
+        logger.debug(traceback.format_exc())
         sys.exit(1)
 
 
