@@ -8,7 +8,7 @@ authors = [
   {name = "subDesTagesMitExtraKaese"},
   {name = "Jonas Höchst", email = "hoechst@trackit.systems"}
 ]
-version = "0.2.0"
+version = "0.3.0"
 description = "Python library for reading Solarlife MPPT solar charge controllers over BLE"
 readme = "README.md"
 license = "MIT"
