@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import threading
 from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
@@ -9,6 +10,30 @@ from bleak.backends.device import BLEDevice
 from bleak.backends.scanner import AdvertisementData
 
 from .protocol import MpptProtocol, ResultContainer, Result
+
+# Persistent event loop for bleak operations on Linux
+# This prevents D-Bus connection leaks when read_device() is called repeatedly
+_loop: asyncio.AbstractEventLoop | None = None
+_loop_lock = threading.Lock()
+
+
+def _get_or_create_loop() -> asyncio.AbstractEventLoop:
+    """Get or create a persistent background event loop for bleak operations.
+    
+    On Linux, bleak uses D-Bus connections that must persist for the lifetime
+    of the process. Creating new event loops with asyncio.run() causes D-Bus
+    connection leaks in dbus-daemon.
+    
+    Returns:
+        A running event loop in a background daemon thread.
+    """
+    global _loop
+    with _loop_lock:
+        if _loop is None or not _loop.is_running():
+            _loop = asyncio.new_event_loop()
+            t = threading.Thread(target=_loop.run_forever, daemon=True)
+            t.start()
+    return _loop
 
 
 def _results_to_dict(results: ResultContainer) -> dict:
@@ -25,16 +50,20 @@ async def _read_from_address(address: str, timeout: float) -> dict:
     return _results_to_dict(status + parameters)
 
 
-def read_device(
+async def read_device_async(
     address: str | None = None,
     scan_timeout: float = 10.0,
     timeout: float = 30.0,
 ) -> dict:
-    """Connect to a SolarLife device and return all readings as a dict.
+    """Connect to a SolarLife device and return all readings as a dict (async).
 
     If *address* is omitted, scans for devices and connects to the one with
     the highest RSSI (strongest signal).  Keys follow the pattern
     ``"Friendly Name (unit)"`` matching the ``--json`` CLI output.
+
+    This is the async version for callers that already have an event loop.
+    Use this instead of `read_device()` if you're already in an async context
+    (e.g., Home Assistant integration) to avoid creating a background thread.
 
     Args:
         address: BLE MAC address.  If None, auto-selects via scan.
@@ -47,22 +76,53 @@ def read_device(
     Raises:
         RuntimeError: If no devices are found during a scan.
     """
-    async def _run() -> dict:
-        if address is not None:
-            return await _read_from_address(address, timeout)
+    if address is not None:
+        return await _read_from_address(address, timeout)
 
-        devices = await MpptClient.scan(timeout=scan_timeout, filter_devices=True)
-        if not devices:
-            raise RuntimeError("No SolarLife devices found during scan.")
+    devices = await MpptClient.scan(timeout=scan_timeout, filter_devices=True)
+    if not devices:
+        raise RuntimeError("No SolarLife devices found during scan.")
 
-        device, _ = max(
-            devices,
-            key=lambda d: d[1].rssi if d[1].rssi is not None else float("-inf"),
-        )
-        logger.info(f"Connecting to device with highest RSSI: {device.address}")
-        return await _read_from_address(device.address, timeout)
+    device, _ = max(
+        devices,
+        key=lambda d: d[1].rssi if d[1].rssi is not None else float("-inf"),
+    )
+    logger.info(f"Connecting to device with highest RSSI: {device.address}")
+    return await _read_from_address(device.address, timeout)
 
-    return asyncio.run(_run())
+
+def read_device(
+    address: str | None = None,
+    scan_timeout: float = 10.0,
+    timeout: float = 30.0,
+) -> dict:
+    """Connect to a SolarLife device and return all readings as a dict.
+
+    If *address* is omitted, scans for devices and connects to the one with
+    the highest RSSI (strongest signal).  Keys follow the pattern
+    ``"Friendly Name (unit)"`` matching the ``--json`` CLI output.
+
+    This function uses a persistent background event loop to prevent D-Bus
+    connection leaks on Linux. For callers that already have an event loop,
+    use `read_device_async()` instead.
+
+    Args:
+        address: BLE MAC address.  If None, auto-selects via scan.
+        scan_timeout: Seconds to scan when auto-selecting a device.
+        timeout: BLE connection / read timeout in seconds.
+
+    Returns:
+        Dict mapping variable names (with units) to their values.
+
+    Raises:
+        RuntimeError: If no devices are found during a scan.
+    """
+    loop = _get_or_create_loop()
+    future = asyncio.run_coroutine_threadsafe(
+        read_device_async(address, scan_timeout, timeout), loop
+    )
+    # Add buffer time for scan + connection + reads
+    return future.result(timeout=scan_timeout + timeout + 15)
 
 
 class MpptClient(MpptProtocol):
