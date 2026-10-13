@@ -1,171 +1,90 @@
 # solarlife
 
-A Python library for reading and controlling Solarlife MPPT solar charge controllers over Bluetooth Low Energy (BLE).
+`solarlifed` is a daemon that keeps a Bluetooth Low Energy connection to a SolarLife MPPT solar charge controller, polls its registers and reports them to a CSV file and to MQTT (JSON and CBOR). `solarlife` is a command line tool that talks to the running daemon: cached and live values, writes, reconnect, scan.
 
-## Requirements
+> **The BLE protocol was reverse engineered. Writing registers can change charging behaviour and erase statistics. Use `write` only if you understand what a register does.**
 
-- Python 3.10+
-- [Bleak](https://github.com/hbldh/bleak) — BLE library for Python
+## Why a daemon
 
-## Installation
+Opening a BLE connection is the unreliable step, especially on a Raspberry Pi whose Wi-Fi access point shares the radio with Bluetooth (one chip, one 2.4 GHz antenna). A connection that is already open is stable. So the daemon opens one connection, keeps it, and polls through it, instead of connecting for every reading.
+
+* It scans for SolarLife devices (manufacturer ID `0x03A0`) and connects to the one with the strongest signal. A rescan runs at a long interval while connected and switches device only if another one is clearly stronger (`switch_hysteresis_db`). `ble.address` pins a device.
+* Scanning and connecting never overlap in the daemon: BlueZ rejects a connect while a scan runs (`org.bluez.Error.InProgress`). Failed connects are retried with a jittered, growing delay, and each retry scans first, because BlueZ forgets a device after a failed connect.
+* The `status` registers (`0x3030`, 41 registers) and the `parameters` registers (`0x9021`, 12 registers) are polled on separate intervals, and both are read right after every (re)connect. After `reconnect_after_failures` failed reads in a row the link is dropped and reopened.
+* A read never returns partial or empty data: it raises. Notifications nobody asked for are counted and ignored.
+* A connected SolarLife stops advertising, so rescans cannot see it. The signal strength recorded at connect is used for the comparison.
+
+## Install
+
+Python 3.12+, `bleak`, `paho-mqtt`, `cbor2`, `PyYAML` (all available as Debian `python3-*` packages).
 
 ```bash
-git clone https://github.com/subDesTagesMitExtraKaese/solarlife-mppt-ble-client.git
-cd solarlife-mppt-ble-client
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+pip install -e ".[dev]"
+pytest
 ```
 
-## Quick start
+## Daemon
 
-```python
-import asyncio
-from solarlife import MpptClient
-
-async def main():
-    async with MpptClient("AA:BB:CC:DD:EE:FF") as charger:
-        status = await charger.read_status()
-        print(f"Battery: {status['battery_percentage'].value}%")
-        print(f"Voltage: {status['battery_voltage'].value} V")
-        print(f"Solar power: {status['solar_panel_power'].value} W")
-
-asyncio.run(main())
+```bash
+sudo cp config/solarlife.yml /boot/firmware/solarlife.yml
+solarlifed                                   # reads /boot/firmware/solarlife.yml
+solarlifed --config ./config/solarlife.yml -v
 ```
 
-## API
+See [config/solarlife.yml](config/solarlife.yml) for all options. It needs access to BlueZ over D-Bus and write access to the CSV directory. SIGTERM disconnects cleanly and publishes the state `offline`.
 
-### `MpptClient(mac_address, timeout=30.0)`
+### Output
 
-Async context manager that connects to the charge controller over BLE.
+**CSV**, one file per daemon start: `<csv.path>/<host>/solarlife/<host>_<UTC timestamp>-solarlife.csv`, long format:
 
-- `mac_address` — BLE address of the device (e.g. `"AA:BB:CC:DD:EE:FF"`)
-- `timeout` — seconds to wait for the connection to be established (default: `30.0`). BlueZ uses this budget for its internal retries when the connection is aborted by the local adapter. Increase this value if you experience frequent timeouts.
-
-```python
-async with MpptClient("AA:BB:CC:DD:EE:FF") as charger:
-    ...
+```
+ts,device,block,key,value,unit
+2026-10-13T08:17:29.077Z,10:23:81:1E:97:4C,status,battery_voltage_level,12.0,V
+2026-10-13T08:17:28.781Z,10:23:81:1E:97:4C,event,connected,rssi=-62 attempts=3 name=SolarLife,
 ```
 
-#### Reading data
+`block=event` rows record `connected`, `disconnected` and `device_switched`.
 
-```python
-# High-level convenience reads
-status = await charger.read_status()      # real-time data (0x3030, 41 registers)
-params = await charger.read_parameters()  # battery/load parameters (0x9021, 12 registers)
+**MQTT**, every message as JSON and as CBOR (same content; switch either off with `mqtt.json` / `mqtt.cbor`):
 
-# Generic read — any register range
-data = await charger.read(start_address=0x3000, count=10)
-```
-
-#### Writing data
-
-```python
-from solarlife import Result, variables
-
-variable = variables["float_voltage"]
-result = Result(**vars(variable), value=13.6)
-await charger.write([result])
-```
-
-#### Accessing results
-
-```python
-# By name
-print(status["battery_voltage"].value)
-
-# By index
-print(status[0].value)
-
-# Iterate
-for result in status:
-    unit = f" {result.unit}" if result.unit else ""
-    print(f"{result.friendly_name}: {result.value}{unit}")
-```
-
-### `MpptClient.scan()`
-
-Static method — scans for nearby BLE devices:
-
-```python
-devices = await MpptClient.scan()
-for device in devices:
-    print(device.address, device.name)
-```
-
-## Variables
-
-The `variables` container holds all known register definitions for the controller:
-
-```python
-from solarlife import variables
-
-for var in variables:
-    print(var.name, hex(var.address), var.unit)
-
-# Look up by name
-var = variables["battery_voltage"]
-```
-
-Each `Variable` has:
-
-| Field | Description |
+| Topic | Content |
 |---|---|
-| `address` | Register address |
-| `name` | Key name (snake_case) |
-| `friendly_name` | Human-readable label |
-| `unit` | Unit of measurement (`"V"`, `"A"`, `"W"`, …) |
-| `multiplier` | Scaling factor applied to the raw register value |
-| `is_32_bit` | Whether the register spans two 16-bit words |
-| `is_signed` | Whether the value is signed |
-| `func` | Optional decoding function for enum-like values |
-| `binary_payload` | `(on_value, off_value)` tuple for switch registers |
+| `{host}/solarlife/{mac}/json` and `/cbor` | One message per block read: `{"_time": ..., "Current battery voltage level (V)": 12.0, ...}`. `{mac}` is the address without colons, lowercase |
+| `{host}/solarlife/state/json` and `/cbor` | Connection state, retained. The will message is `{"state": "offline"}` |
+| `{host}/solarlife/events/json` and `/cbor` | `connected`, `connect_failed`, `disconnected`, `device_switched`, `scan_completed`, `read_failed`, `daemon_started`, `daemon_stopped` |
 
-## Example script
+## CLI
 
-```bash
-# Scan for devices
-python examples/read_all.py --scan
-
-# Read all status registers from a device
-python examples/read_all.py AA:BB:CC:DD:EE:FF
 ```
+solarlife status                       state, device, age of the last reads, connect statistics
+solarlife cached [status|parameters]   last values the daemon read (no radio traffic)
+solarlife read [status|parameters]     live read through the held connection
+solarlife read --range 0x3032:2        raw registers
+solarlife write float_voltage=13.6     validated, confirmed, read back (--yes, --force)
+solarlife reconnect                    drop the connection and connect again
+solarlife rescan                       scan now and re-select the device
+solarlife scan                         last scan results
+solarlife variables [--writable]       known variables (works without the daemon)
+```
+
+`--json` prints the raw result, `--socket` / `--config` select the daemon. Exit codes: 0 ok, 1 daemon error, 2 usage error, 3 daemon unreachable.
+
+`write` checks names and values before anything is sent, refuses read-only variables, and needs `--force` for variables that can erase data or lock the device out (restore/clear switches, slave id, baud rate, password). Registers that are not adjacent are written separately.
+
+The CLI and the daemon talk newline-delimited JSON over a Unix socket (`daemon.socket`): `{"id": 1, "cmd": "read", "args": {"block": "status"}}` answers `{"id": 1, "ok": true, "result": ...}` or `{"id": 1, "ok": false, "error": {"type": "not_connected", "message": ...}}`.
 
 ## Troubleshooting
 
-### Connection timeouts on Raspberry Pi (or other single-chip WiFi+BT devices)
+**Connecting takes minutes, or fails with `connect timed out`, `br-connection-canceled`, `failed to discover services, device disconnected`.** On a Raspberry Pi with a 2.4 GHz access point up, Bluetooth and Wi-Fi compete for the radio and opening a connection often fails, while the same device connects immediately from a phone. An open connection is not affected, which is why the daemon holds it. Moving the access point to 5 GHz fixes it where the hardware supports that. The connect timeout is long on purpose (45 s): BlueZ retries internally and a connect often succeeds after 10-40 s.
 
-**Symptom:** The connection fails repeatedly with messages like `le-connection-abort-by-local` or a timeout error, even though the device is clearly visible during the scan. The same device connects instantly from a mobile phone.
+## Layout
 
-**Root cause:** Raspberry Pi 4/5 (and similar boards) use a Broadcom/Cypress combo chip (BCM4345) that shares a single 2.4 GHz antenna between WiFi and Bluetooth. When a 2.4 GHz WiFi access point is active on that chip, it monopolises the radio and the BLE firmware returns `-EBUSY` on every connection attempt. The kernel will log this as:
+`src/solarlife/`: `protocol.py`, `variables.py`, `crc.py` (the register protocol), `session.py` (one held link), `manager.py` (scan and connect state machine), `poller.py`, `registers.py` (blocks and write validation), `outputs/`, `server.py` and `ipc.py` (control socket), `daemon.py`, `cli.py`, `ble/` (transport interface; only `ble/bleak_backend.py` imports bleak).
+`tests/` runs without BLE hardware against a fake backend (`tests/fakes.py`).
 
-```
-Bluetooth: hci0: Opcode 0x2006 failed: -16
-```
+## Notable mentions
 
-**Fix:** Move the WiFi AP to the 5 GHz band. WiFi at 5 GHz and Bluetooth operate in completely separate spectrum and will no longer interfere. With `nmcli`:
-
-```bash
-sudo nmcli con modify <hotspot-connection-name> \
-    802-11-wireless.band a \
-    802-11-wireless.channel 36
-sudo nmcli con up <hotspot-connection-name>
-```
-
-Or set `hw_mode=a` and an appropriate `channel` in your `wpa_supplicant` / `hostapd` configuration.
-
-**Workaround (if 5 GHz is not available):** Increase the connection timeout so BlueZ has a longer window to succeed between WiFi transmissions:
-
-```bash
-solarlife read AA:BB:CC:DD:EE:FF --timeout 60
-```
-
-Or in code:
-
-```python
-async with MpptClient("AA:BB:CC:DD:EE:FF", timeout=60.0) as charger:
-    ...
-```
+- [Olen/VictronConnect](https://github.com/Olen/VictronConnect) and [subDesTagesMitExtraKaese/solarlife-mppt-ble-client](https://github.com/subDesTagesMitExtraKaese/solarlife-mppt-ble-client), where the protocol work started.
 
 ## License
 
