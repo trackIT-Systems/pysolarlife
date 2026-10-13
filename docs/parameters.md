@@ -63,6 +63,8 @@ solarlife profile load ./before.yml --yes    # restore without asking
 
 To go back after an experiment: `solarlife profile save before.yml`, change things, `solarlife profile load before.yml`.
 
+The device silently ignores some writes. On a controller set to `GEL`, writing `charge_recovery_voltage_for_lithium` was accepted without an error but the value stayed unchanged, while `equalizing_voltage` took effect. The lithium voltages most likely only apply when `battery_type` is `Lithium`; to switch a controller to a lithium battery, load the profile with `battery_type` included (the premade lithium profile does) and check the read-back. A value the device ignored is reported as a mismatch and exit code 1.
+
 Changing `battery_type` may make the controller reset other voltages on its own. The read-back after a load shows what the device really ended up with; if values are off, load the profile again.
 
 ## Premade profiles
