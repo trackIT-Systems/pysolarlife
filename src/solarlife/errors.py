@@ -13,6 +13,10 @@ class NotConnectedError(SolarlifeError):
     """No device is connected, or the link dropped during a transaction."""
 
 
+class LinkError(SolarlifeError):
+    """A BLE write or notification setup failed, but the link may still be up."""
+
+
 class TransactionTimeout(SolarlifeError):
     """The device did not answer a request in time, after all retries."""
 
