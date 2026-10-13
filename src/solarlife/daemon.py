@@ -302,7 +302,7 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=level, format="%(levelname)s %(name)s: %(message)s", stream=sys.stderr)
     try:
         return asyncio.run(Daemon(config).run())
-    except SolarlifeError as exc:
+    except (SolarlifeError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 

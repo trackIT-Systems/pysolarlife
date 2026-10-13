@@ -271,3 +271,18 @@ def test_the_daemon_exits_with_an_error_if_a_core_task_dies():
         shutil.rmtree(env.dir, ignore_errors=True)
 
     run(go())
+
+
+def test_main_reports_startup_problems_without_a_traceback(tmp_path, capsys, monkeypatch):
+    from solarlife import daemon
+
+    assert daemon.main(["--config", str(tmp_path / "missing.yml")]) == 1
+    assert "not found" in capsys.readouterr().err
+
+    blocked = tmp_path / "file"
+    blocked.write_text("x")  # a file where the csv directory should be created
+    config = tmp_path / "c.yml"
+    config.write_text(f"daemon:\n  socket: /tmp/sl-main-test.sock\n  csv: {{path: {blocked}}}\n  mqtt: {{enabled: false}}\n")
+    monkeypatch.setattr("solarlife.ble.bleak_backend.BleakBackend", lambda adapter=None: FakeBackend())
+    assert daemon.main(["--config", str(config)]) == 1
+    assert "error:" in capsys.readouterr().err
