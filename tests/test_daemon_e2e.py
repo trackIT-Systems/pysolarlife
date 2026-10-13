@@ -286,3 +286,29 @@ def test_main_reports_startup_problems_without_a_traceback(tmp_path, capsys, mon
     monkeypatch.setattr("solarlife.ble.bleak_backend.BleakBackend", lambda adapter=None: FakeBackend())
     assert daemon.main(["--config", str(config)]) == 1
     assert "error:" in capsys.readouterr().err
+
+
+def test_profile_save_change_and_restore_through_the_daemon(tmp_path, capsys):
+    from solarlife import cli
+
+    async def go():
+        async with Env([{A: -60}]) as env:
+            await env.wait_connected()
+            device = env.backend.devices[A]
+
+            def cli_run(*argv):
+                return asyncio.to_thread(cli.main, ["--socket", str(env.sock), "profile", *argv])
+
+            before = tmp_path / "before.yml"
+            assert await cli_run("save", str(before)) == 0
+            original = dict(device.registers)
+
+            assert await cli_run("load", "agm-12v", "--yes") == 0
+            assert device.registers[0x9021] == 3 and device.registers[0x9026] == 1360  # AGM, float 13.6
+            assert await cli_run("diff", "agm-12v") == 0
+            assert "nothing to change" in capsys.readouterr().out.rsplit("written and verified", 1)[-1]
+
+            assert await cli_run("load", str(before), "--yes") == 0
+            assert device.registers == original
+
+    run(go())

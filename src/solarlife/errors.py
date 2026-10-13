@@ -61,3 +61,7 @@ class DaemonError(SolarlifeError):
         super().__init__(message)
         self.type = error_type
         self.message = message
+
+
+class ProfileError(SolarlifeError):
+    """A profile file or name cannot be used."""

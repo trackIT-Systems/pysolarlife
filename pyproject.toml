@@ -39,6 +39,9 @@ version = {attr = "solarlife.__version__"}
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+solarlife = ["premade/*.yml"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]

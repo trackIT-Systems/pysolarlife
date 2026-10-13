@@ -263,3 +263,120 @@ def test_help_and_usage_errors(capsys):
     with pytest.raises(SystemExit) as exit_:
         cli.main(["read", "bogus"])
     assert exit_.value.code == 2
+
+
+# -- profiles ---------------------------------------------------------------------
+
+PARAMS = [
+    {"name": "battery_type", "value": "Lithium", "unit": ""},
+    {"name": "float_voltage", "value": 13.6, "unit": "V"},
+    {"name": "boost_voltage", "value": 14.4, "unit": "V"},
+]
+LIVE_PARAMS = {"device": "AA", "blocks": {"parameters": {"time": "t", "values": PARAMS}}}
+
+
+def write_profile(path, **values):
+    import yaml
+
+    path.write_text(yaml.safe_dump({"name": "t", "values": values}))
+    return str(path)
+
+
+def test_profile_list_and_show_work_offline(capsys, tmp_path):
+    assert cli.main(["--socket", str(tmp_path / "none.sock"), "profile", "list"]) == 0
+    assert "agm-12v" in capsys.readouterr().out
+    assert cli.main(["profile", "show", "agm-12v", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["values"]["battery_type"] == "AGM"
+    assert cli.main(["profile", "show", "agm-12v"]) == 0
+    assert "float_voltage: 13.6" in capsys.readouterr().out
+    assert cli.main(["profile", "show", "nope"]) == 2
+    assert "no premade profile" in capsys.readouterr().err
+
+
+def test_profile_save(capsys, tmp_path):
+    out = tmp_path / "p.yml"
+    with StubDaemon({"read": LIVE_PARAMS}) as d:
+        assert run_cli(d, "profile", "save", str(out), "--description", "mine") == 0
+        assert d.calls[-1] == ("read", {"block": "parameters"})
+        assert "saved 3 parameters" in capsys.readouterr().out
+        text = out.read_text()
+        assert "# from device AA" in text and "float_voltage: 13.6" in text and "description: mine" in text
+        assert run_cli(d, "profile", "save", str(out)) == 2  # exists
+        assert "--force" in capsys.readouterr().err
+        assert run_cli(d, "profile", "save", str(out), "--force", "--name", "other") == 0
+        assert "name: other" in out.read_text()
+        assert run_cli(d, "profile", "save", "-") == 0
+        assert "values:" in capsys.readouterr().out.split("saved", 1)[-1]
+
+
+def test_profile_save_cached_needs_fresh_data(capsys, tmp_path):
+    fresh = {"device": "AA", "blocks": {"parameters": {"time": "t", "age_s": 5, "stale": False, "values": PARAMS}}}
+    stale = {"device": "AA", "blocks": {"parameters": {"time": "t", "age_s": 99999, "stale": True, "values": PARAMS}}}
+    with StubDaemon({"cached": fresh}) as d:
+        assert run_cli(d, "profile", "save", str(tmp_path / "a.yml"), "--cached") == 0
+        assert d.calls[-1] == ("cached", {"block": "parameters"})
+    with StubDaemon({"cached": stale}) as d:
+        assert run_cli(d, "profile", "save", str(tmp_path / "b.yml"), "--cached") == 1
+        assert not (tmp_path / "b.yml").exists() and "no recent cached parameters" in capsys.readouterr().err
+
+
+def test_profile_diff_and_dry_run_write_nothing(capsys, tmp_path):
+    path = write_profile(tmp_path / "p.yml", float_voltage=13.8, boost_voltage=14.4)
+    with StubDaemon({"read": LIVE_PARAMS, "write": {"written": [], "readback": {}}}) as d:
+        assert run_cli(d, "profile", "diff", path) == 0
+        out = capsys.readouterr().out
+        assert "1 of 2 value(s) differ" in out and "float_voltage" in out and "13.6  ->  13.8" in out and "boost_voltage" not in out
+        assert run_cli(d, "profile", "load", path, "--dry-run") == 0
+        assert [c[0] for c in d.calls] == ["read", "read"]
+
+
+def test_profile_load_with_nothing_to_change(capsys, tmp_path):
+    path = write_profile(tmp_path / "p.yml", float_voltage=13.6, battery_type="lithium")
+    with StubDaemon({"read": LIVE_PARAMS}) as d:
+        assert run_cli(d, "profile", "load", path, "--yes") == 0
+        assert "nothing to change" in capsys.readouterr().out
+        assert [c[0] for c in d.calls] == ["read"]
+
+
+def test_profile_load_writes_only_the_differences_and_verifies(capsys, tmp_path):
+    path = write_profile(tmp_path / "p.yml", float_voltage=13.8, boost_voltage=14.4, battery_type="AGM")
+    readback = {"parameters": [{"name": "battery_type", "value": "AGM"}, {"name": "float_voltage", "value": 13.8}, {"name": "boost_voltage", "value": 14.4}]}
+    with StubDaemon({"read": LIVE_PARAMS, "write": {"written": [], "readback": readback}}) as d:
+        assert run_cli(d, "profile", "load", path, "--yes") == 0
+        assert d.calls[-1] == ("write", {"values": {"battery_type": "AGM", "float_voltage": 13.8}, "force": False})
+        assert "written and verified: 2 value(s)" in capsys.readouterr().out
+
+
+def test_profile_load_reports_a_mismatch(capsys, tmp_path):
+    path = write_profile(tmp_path / "p.yml", float_voltage=13.8)
+    readback = {"parameters": [{"name": "float_voltage", "value": 13.6}]}
+    with StubDaemon({"read": LIVE_PARAMS, "write": {"written": [], "readback": readback}}) as d:
+        assert run_cli(d, "profile", "load", path, "--yes") == 1
+    assert "float_voltage (wanted 13.8, got 13.6)" in capsys.readouterr().err
+    with StubDaemon({"read": LIVE_PARAMS, "write": {"written": [], "readback": {}, "readback_errors": {"parameters": "timeout"}}}) as d:
+        assert run_cli(d, "profile", "load", path, "--yes") == 1
+    err = capsys.readouterr().err
+    assert "could not read the parameters back: timeout" in err and "got nothing" in err
+
+
+def test_profile_load_asks_for_confirmation(capsys, tmp_path, monkeypatch):
+    path = write_profile(tmp_path / "p.yml", float_voltage=13.8)
+    readback = {"parameters": [{"name": "float_voltage", "value": 13.8}]}
+    with StubDaemon({"read": LIVE_PARAMS, "write": {"written": [], "readback": readback}}) as d:
+        monkeypatch.setattr("sys.stdin", type("S", (), {"isatty": lambda self: False})())
+        assert run_cli(d, "profile", "load", path) == 2
+        monkeypatch.setattr("sys.stdin", type("S", (), {"isatty": lambda self: True})())
+        monkeypatch.setattr("builtins.input", lambda prompt: "n")
+        assert run_cli(d, "profile", "load", path) == 1
+        assert "write" not in [c[0] for c in d.calls]
+        monkeypatch.setattr("builtins.input", lambda prompt: "y")
+        assert run_cli(d, "profile", "load", path) == 0
+    assert "float_voltage = 13.8 V" in capsys.readouterr().out
+
+
+def test_profile_load_validates_the_file_before_contacting_the_daemon(capsys, tmp_path):
+    with StubDaemon({"read": LIVE_PARAMS}) as d:
+        assert run_cli(d, "profile", "load", write_profile(tmp_path / "a.yml", slave_id=3), "--yes") == 2
+        assert run_cli(d, "profile", "load", write_profile(tmp_path / "b.yml", battery_type="plutonium"), "--yes") == 2
+        assert d.calls == []
+    assert "not a profile parameter" in capsys.readouterr().err

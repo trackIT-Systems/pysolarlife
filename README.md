@@ -61,6 +61,7 @@ solarlife cached [status|parameters]   last values the daemon read (no radio tra
 solarlife read [status|parameters]     live read through the held connection
 solarlife read --range 0x3032:2        raw registers
 solarlife write float_voltage=13.6     validated, confirmed, read back (--yes, --force)
+solarlife profile save|load|diff|show|list   parameter sets, see below
 solarlife reconnect                    drop the connection and connect again
 solarlife rescan                       scan now and re-select the device
 solarlife scan                         last scan results
@@ -71,6 +72,19 @@ solarlife variables [--writable]       known variables (works without the daemon
 
 `write` checks names and values before anything is sent, refuses read-only variables, and needs `--force` for variables that can erase data or lock the device out (restore/clear switches, slave id, baud rate, password). Registers that are not adjacent are written separately.
 
+### Profiles
+
+A profile is a YAML file with a set of the twelve controller parameters (battery type, voltage thresholds, ...). A few 12 V profiles are built in.
+
+```
+solarlife profile save before.yml      save the current parameters
+solarlife profile diff agm-12v         what would change
+solarlife profile load agm-12v         diff, confirm, write only what differs, read back and verify
+solarlife profile load before.yml -y   restore
+```
+
+All parameters, accepted values and the file format are in [docs/parameters.md](docs/parameters.md). The built-in voltages are typical values: check them against your battery's datasheet.
+
 The CLI and the daemon talk newline-delimited JSON over a Unix socket (`daemon.socket`): `{"id": 1, "cmd": "read", "args": {"block": "status"}}` answers `{"id": 1, "ok": true, "result": ...}` or `{"id": 1, "ok": false, "error": {"type": "not_connected", "message": ...}}`.
 
 ## Troubleshooting
@@ -79,7 +93,7 @@ The CLI and the daemon talk newline-delimited JSON over a Unix socket (`daemon.s
 
 ## Layout
 
-`src/solarlife/`: `protocol.py`, `variables.py`, `crc.py` (the register protocol), `session.py` (one held link), `manager.py` (scan and connect state machine), `poller.py`, `registers.py` (blocks and write validation), `outputs/`, `server.py` and `ipc.py` (control socket), `daemon.py`, `cli.py`, `ble/` (transport interface; only `ble/bleak_backend.py` imports bleak).
+`src/solarlife/`: `protocol.py`, `variables.py`, `crc.py` (the register protocol), `session.py` (one held link), `manager.py` (scan and connect state machine), `poller.py`, `registers.py` (blocks and write validation), `profiles.py` (parameter sets, `premade/`), `outputs/`, `server.py` and `ipc.py` (control socket), `daemon.py`, `cli.py`, `ble/` (transport interface; only `ble/bleak_backend.py` imports bleak).
 `tests/` runs without BLE hardware against a fake backend (`tests/fakes.py`).
 
 ## Credits

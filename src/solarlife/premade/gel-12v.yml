@@ -1,0 +1,10 @@
+name: gel-12v
+description: 12 V GEL lead-acid battery (draft values, check the battery datasheet)
+values:
+  battery_type: GEL
+  system_rated_voltage_level: 12V
+  low_voltage_protection_voltage: 10.8
+  low_voltage_recovery_voltage: 12.2
+  boost_voltage: 14.2
+  equalizing_voltage: 14.2
+  float_voltage: 13.8

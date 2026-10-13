@@ -1,0 +1,9 @@
+name: lifepo4-4s-12v
+description: 12.8 V LiFePO4 battery, 4 cells in series (draft values, check the battery datasheet)
+values:
+  battery_type: Lithium
+  system_rated_voltage_level: 12V
+  low_voltage_protection_voltage: 11.2
+  low_voltage_recovery_voltage: 12.4
+  charge_target_voltage_for_lithium: 14.2
+  charge_recovery_voltage_for_lithium: 13.4
