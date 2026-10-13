@@ -202,3 +202,29 @@ class FakeBackend:
         link._on_disconnect = on_disconnect
         self.links.append(link)
         return link
+
+
+class FakeMqtt:
+    def __init__(self):
+        self.published = []
+        self.wills = []
+        self.connected_to = None
+        self.looping = False
+
+    def will_set(self, topic, payload, qos=0, retain=False):
+        self.wills.append((topic, payload, retain))
+
+    def connect_async(self, host, port):
+        self.connected_to = (host, port)
+
+    def loop_start(self):
+        self.looping = True
+
+    def loop_stop(self):
+        self.looping = False
+
+    def disconnect(self):
+        self.connected_to = None
+
+    def publish(self, topic, payload, qos=0, retain=False):
+        self.published.append((topic, payload, retain))

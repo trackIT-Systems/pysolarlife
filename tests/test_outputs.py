@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 import cbor2
 
+from fakes import FakeMqtt
 from solarlife.config import MqttConfig
 from solarlife.outputs import Outputs
 from solarlife.outputs.csv import CsvOutput, csv_session_path
@@ -33,7 +34,8 @@ def test_csv_rows_and_events(tmp_path):
     out.emit_event(Event(WHEN, "connected", MAC, {"rssi": -67, "attempts": 5}))
     out.emit_event(Event(WHEN, "connect_failed", MAC, {"error": "timeout"}))  # not logged
     out.emit_state({"state": "connected"})
-    rows = list(csv.DictReader((tmp_path / "x" / "s.csv").open()))
+    with (tmp_path / "x" / "s.csv").open() as handle:
+        rows = list(csv.DictReader(handle))
     assert rows[0] == {"ts": "2026-10-13T10:03:00.123Z", "device": MAC, "block": "status", "key": "battery_voltage_level", "value": "24.0", "unit": "V"}
     assert rows[1]["key"] == "battery_type" and rows[1]["value"] == "Lithium"
     assert rows[2] == {"ts": "2026-10-13T10:03:00.123Z", "device": MAC, "block": "event", "key": "connected", "value": "rssi=-67 attempts=5", "unit": ""}
@@ -45,32 +47,6 @@ def test_csv_reuses_existing_file_without_a_second_header(tmp_path):
     CsvOutput(path).emit_reading(reading())
     CsvOutput(path).emit_reading(reading())
     assert path.read_text().count("ts,device") == 1
-
-
-class FakeMqtt:
-    def __init__(self):
-        self.published = []
-        self.wills = []
-        self.connected_to = None
-        self.looping = False
-
-    def will_set(self, topic, payload, qos=0, retain=False):
-        self.wills.append((topic, payload, retain))
-
-    def connect_async(self, host, port):
-        self.connected_to = (host, port)
-
-    def loop_start(self):
-        self.looping = True
-
-    def loop_stop(self):
-        self.looping = False
-
-    def disconnect(self):
-        self.connected_to = None
-
-    def publish(self, topic, payload, qos=0, retain=False):
-        self.published.append((topic, payload, retain))
 
 
 def test_mqtt_publishes_json_and_cbor():

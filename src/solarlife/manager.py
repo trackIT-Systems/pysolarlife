@@ -146,6 +146,7 @@ class ConnectionManager:
         self._candidate: Advertisement | None = None
         self._next_backoff_s: float | None = None
         self._connected_mono = 0.0
+        self.next_rescan_mono: float | None = None  # for `status`
         self._last_address: str | None = None
         self._generation = 0  # callbacks of links we already dropped must not wake us
 
@@ -285,7 +286,7 @@ class ConnectionManager:
         """Stay connected; handle loss, reconnect requests and the periodic rescan."""
         session = self.session
         assert session is not None
-        next_rescan = self._clock() + self.cfg.rescan_interval_s
+        next_rescan = self.next_rescan_mono = self._clock() + self.cfg.rescan_interval_s
         while True:
             timed_out = await self._sleep(max(0.0, next_rescan - self._clock()))
             if self._lost or not session.link.is_connected:
@@ -299,7 +300,7 @@ class ConnectionManager:
             if timed_out or self._rescan_waiters:
                 if await self._rescan_while_connected():
                     return
-                next_rescan = self._clock() + self.cfg.rescan_interval_s
+                next_rescan = self.next_rescan_mono = self._clock() + self.cfg.rescan_interval_s
 
     async def _rescan_while_connected(self) -> bool:
         """Scan with the link open. Returns True if we dropped it to switch devices."""
@@ -326,6 +327,7 @@ class ConnectionManager:
     async def _drop(self, reason: str, *, backoff: bool) -> None:
         """Close the current link and arrange for the next connect."""
         session, device = self.session, self.device
+        self.next_rescan_mono = None
         up_s = self._clock() - self._connected_mono
         if backoff and up_s >= self.cfg.stable_after_s:
             self._backoff.reset()

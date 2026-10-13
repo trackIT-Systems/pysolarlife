@@ -48,3 +48,16 @@ class ConnectError(SolarlifeError):
         super().__init__(message)
         self.in_progress = in_progress
         self.not_found = not_found
+
+
+class DaemonUnreachable(SolarlifeError):
+    """The CLI could not reach the daemon's control socket."""
+
+
+class DaemonError(SolarlifeError):
+    """The daemon answered a request with an error."""
+
+    def __init__(self, error_type: str, message: str) -> None:
+        super().__init__(message)
+        self.type = error_type
+        self.message = message
