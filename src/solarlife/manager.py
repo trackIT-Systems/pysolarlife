@@ -361,11 +361,14 @@ class ConnectionManager:
         self.connected_since = None
         self.stats.disconnects += 1
         self._event("disconnected", device.address if device else None, reason=reason, up_s=round(up_s))
+        # Whatever the reason, the old advertisement is stale by the time we connect again. Unless
+        # we are switching away, the same device is the one we want back.
+        if reason != "switch":
+            self._candidate = None
+            self._retry_address = device.address if device else None
         if backoff:
             delay = self._next_backoff_s = self._backoff.next()
             self.stats.backoff_s = delay
-            self._candidate = None  # the old advertisement is stale by the time we retry
-            self._retry_address = device.address if device else None
         else:
             self._next_backoff_s = None
 

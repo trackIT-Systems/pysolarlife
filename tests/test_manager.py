@@ -274,6 +274,8 @@ def test_cli_reconnect_skips_the_backoff():
             await until(lambda: len(backend.links) == 2 and h.manager.connected.is_set(), timeout=1.5)
             assert backend.links[0].disconnect_calls == 1
             assert [e.data["reason"] for e in h.events if e.kind == "disconnected"] == ["cli"]
+            # it looks for the same device again, with a short scan
+            assert [(kind, addr) for kind, _, addr in backend.calls][-2:] == [("scan", A), ("connect", A)]
 
     run(go())
 
@@ -473,5 +475,18 @@ def test_after_a_remote_disconnect_the_same_device_is_looked_for_first():
             backend.links[0].trigger_disconnect()
             await until(lambda: len(backend.links) == 2 and h.manager.connected.is_set())
             assert [(kind, addr) for kind, _, addr in backend.calls][-2:] == [("scan", A), ("connect", A)]
+
+    run(go())
+
+
+def test_a_reconnect_request_does_not_move_to_another_device():
+    async def go():
+        backend = FakeBackend()
+        backend.scan_results = [{A: -70}, {A: -70, B: -40}]  # B shows up, but only a rescan may switch
+        async with Harness(backend, backoff_initial_s=5, backoff_max_s=5) as h:
+            await until(lambda: h.manager.connected.is_set())
+            h.manager.request_reconnect("cli")
+            await until(lambda: len(backend.links) == 2 and h.manager.connected.is_set(), timeout=1.5)
+            assert h.manager.device.address == A
 
     run(go())
