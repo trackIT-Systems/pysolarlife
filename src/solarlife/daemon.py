@@ -297,7 +297,11 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     level = logging.DEBUG if args.verbose else getattr(logging, config.daemon.log_level)
     logging.basicConfig(level=level, format="%(levelname)s %(name)s: %(message)s", stream=sys.stderr)
-    return asyncio.run(Daemon(config).run())
+    try:
+        return asyncio.run(Daemon(config).run())
+    except SolarlifeError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

@@ -62,6 +62,8 @@ def request(
         raise DaemonUnreachable(f"no permission to use {socket_path}") from None
     except TimeoutError:
         raise DaemonUnreachable(f"daemon did not answer within {timeout:g} s") from None
+    except OSError as exc:  # e.g. a socket path that is too long
+        raise DaemonUnreachable(f"cannot connect to {socket_path}: {exc}") from None
     try:
         response = decode(bytes(buffer).split(b"\n", 1)[0])
     except ValueError as exc:

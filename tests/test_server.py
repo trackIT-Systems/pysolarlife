@@ -240,3 +240,14 @@ def test_client_timeout(sock_path):
             await server.stop()
 
     run(go())
+
+
+def test_a_socket_path_that_is_too_long_is_a_clean_error(sock_path):
+    from solarlife.errors import SolarlifeError
+
+    async def go():
+        server = ControlServer(sock_path.parent / ("x" * 120) / "s.sock", 0o660, make_handlers())
+        with pytest.raises(SolarlifeError, match="cannot create control socket"):
+            await server.start()
+
+    run(go())

@@ -66,8 +66,11 @@ class ControlServer:
                 self.path.unlink()  # left over from a crashed daemon
         except FileNotFoundError:
             pass
-        self._server = await asyncio.start_unix_server(self._client, str(self.path), limit=ipc.MAX_REQUEST_BYTES)
-        os.chmod(self.path, self.mode)
+        try:
+            self._server = await asyncio.start_unix_server(self._client, str(self.path), limit=ipc.MAX_REQUEST_BYTES)
+            os.chmod(self.path, self.mode)
+        except OSError as exc:
+            raise SolarlifeError(f"cannot create control socket {self.path}: {exc}") from None
         log.info("control socket %s", self.path)
 
     async def stop(self) -> None:
