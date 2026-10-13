@@ -82,9 +82,9 @@ The CLI and the daemon talk newline-delimited JSON over a Unix socket (`daemon.s
 `src/solarlife/`: `protocol.py`, `variables.py`, `crc.py` (the register protocol), `session.py` (one held link), `manager.py` (scan and connect state machine), `poller.py`, `registers.py` (blocks and write validation), `outputs/`, `server.py` and `ipc.py` (control socket), `daemon.py`, `cli.py`, `ble/` (transport interface; only `ble/bleak_backend.py` imports bleak).
 `tests/` runs without BLE hardware against a fake backend (`tests/fakes.py`).
 
-## Notable mentions
+## Credits
 
-- [Olen/VictronConnect](https://github.com/Olen/VictronConnect) and [subDesTagesMitExtraKaese/solarlife-mppt-ble-client](https://github.com/subDesTagesMitExtraKaese/solarlife-mppt-ble-client), where the protocol work started.
+The register protocol comes from [subDesTagesMitExtraKaese/solarlife-mppt-ble-client](https://github.com/subDesTagesMitExtraKaese/solarlife-mppt-ble-client).
 
 ## License
 
