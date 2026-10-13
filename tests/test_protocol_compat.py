@@ -1,8 +1,6 @@
 from itertools import groupby
 
 import unittest
-import sys
-sys.path.append("..")
 
 from solarlife.variables import variables
 

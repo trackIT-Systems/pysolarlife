@@ -1,6 +1,4 @@
 import unittest
-import sys
-sys.path.append("..")
 
 from solarlife.variables import variables
 from solarlife.protocol import MpptProtocol, Result

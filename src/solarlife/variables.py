@@ -147,7 +147,7 @@ def _get_device_status_registers(offset: int):
             lambda x: (x >> 4) & 0x1 == 1, ("True", "False")),
         Variable(offset + 1, False, False, [0x04], "", 0, "solar_panel_charge_state", "Solar panel charge status", 
             lambda x: ["Not charging", "Float charge", "Boost charge", "Equal charge"][(x >> 2) & 0x3], None),
-        Variable(offset + 1, False, False, [0x04], "", 0, "solar_panel_charge_state", "Is charge fault", 
+        Variable(offset + 1, False, False, [0x04], "", 0, "solar_panel_charge_fault", "Is charge fault", 
             lambda x: (x >> 1) & 0x1 == 1, ("True", "False")),
         Variable(offset + 1, False, False, [0x04], "", 0, "solar_panel_is_charging", "Solar panel is charging", 
             lambda x: (x >> 0) & 0x1 == 1, ("True", "False")),
