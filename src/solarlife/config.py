@@ -21,9 +21,9 @@ class BleConfig:
     rescan_interval_s: float = 3600.0
     switch_hysteresis_db: float = 10.0
     adv_max_age_s: float = 20.0
-    connect_timeout_s: float = 15.0
+    connect_timeout_s: float = 45.0
     backoff_initial_s: float = 2.0
-    backoff_max_s: float = 120.0
+    backoff_max_s: float = 30.0
     inprogress_min_s: float = 5.0
     stable_after_s: float = 60.0
     max_connect_failures: int = 10

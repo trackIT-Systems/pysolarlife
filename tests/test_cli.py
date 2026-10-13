@@ -163,6 +163,11 @@ def test_cached_and_read_commands(capsys):
         assert "ADDRESS[:COUNT]" in capsys.readouterr().err
 
 
+def test_scan_output_marks_a_connected_device_that_does_not_advertise(capsys):
+    scan = {"time": "t", "devices": [{"address": "AA", "name": "SolarLife", "rssi": -62, "samples": 0, "current": True, "advertising": False}]}
+    assert "-62 dBm (when connected)" in cli.format_scan(scan)
+
+
 def test_reconnect_rescan_scan(capsys):
     scan = {"time": "t", "devices": [{"address": "AA", "name": "SolarLife", "rssi": -60, "samples": 9, "current": True}, {"address": "BB", "name": None, "rssi": -80, "samples": 2, "current": False}]}
     with StubDaemon({"reconnect": {"requested": True}, "rescan": scan, "scan": {"time": None, "devices": []}}) as d:

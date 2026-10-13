@@ -125,7 +125,12 @@ def format_blocks(result: dict[str, Any], *, live: bool) -> str:
 def format_scan(scan: dict[str, Any]) -> str:
     if not scan["devices"]:
         return "no SolarLife devices found" + ("" if scan["time"] else " (no scan yet)")
-    rows = [[d["address"], d.get("name") or "", f"{d['rssi']} dBm", str(d["samples"]), "*" if d["current"] else ""] for d in scan["devices"]]
+    def rssi(d: dict[str, Any]) -> str:
+        if d["rssi"] is None:
+            return "-"
+        return f"{d['rssi']} dBm" + ("" if d.get("advertising", True) else " (when connected)")
+
+    rows = [[d["address"], d.get("name") or "", rssi(d), str(d["samples"]), "*" if d["current"] else ""] for d in scan["devices"]]
     return table(rows, ["ADDRESS", "NAME", "RSSI", "SAMPLES", "CONNECTED"])
 
 

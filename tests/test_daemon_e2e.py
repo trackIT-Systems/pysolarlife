@@ -187,6 +187,33 @@ def test_reconnect_and_scan_commands():
     run(go())
 
 
+def test_scan_lists_the_connected_device_even_though_it_does_not_advertise_anymore():
+    async def go():
+        async with Env([{A: -60}, {}], rescan_interval_s=3600) as env:
+            await env.wait_connected()
+            await env.call("rescan")  # the second scan sees nobody: a connected SolarLife is silent
+            scan = await env.call("scan")
+            assert scan["devices"] == [{"address": A, "name": "SolarLife", "rssi": -60, "samples": 0, "current": True, "advertising": False}]
+            status = await env.call("status")
+            assert status["state"] == "connected"
+            assert status["scan"]["devices"] == 0
+
+    run(go())
+
+
+def test_since_in_the_status_is_the_connect_time_only_while_connected():
+    async def go():
+        async with Env([{A: -60}]) as env:
+            await env.wait_connected()
+            connected = (await env.call("status"))["since"]
+            await asyncio.sleep(0.05)
+            env.daemon.manager._set_state(env.daemon.manager.state.__class__.RESCANNING)
+            rescanning = (await env.call("status"))["since"]
+            assert rescanning > connected
+
+    run(go())
+
+
 def test_commands_report_not_connected_while_no_device_is_found():
     async def go():
         async with Env([{}]) as env:

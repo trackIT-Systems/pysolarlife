@@ -6,9 +6,11 @@ ble:
   rescan_interval_s: 3600     # rescan cadence while connected
   switch_hysteresis_db: 10    # a rescan must find a device this much stronger to switch
   adv_max_age_s: 20           # only connect with an advertisement younger than this
-  connect_timeout_s: 15
+  # BlueZ retries a connect internally while the radio is shared with the Wi-Fi access point, and
+  # such a connect often takes 10-40 s. A short timeout cancels attempts that would have worked.
+  connect_timeout_s: 45
   backoff_initial_s: 2
-  backoff_max_s: 120
+  backoff_max_s: 30
   inprogress_min_s: 5
   stable_after_s: 60          # the backoff resets after a link stayed up this long
   max_connect_failures: 10    # per address before scanning and selecting again

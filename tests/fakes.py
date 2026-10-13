@@ -172,8 +172,8 @@ class FakeBackend:
         self.violations: list[str] = []
         self._scans = 0
 
-    async def scan(self, duration_s: float) -> dict[str, Advertisement]:
-        self.calls.append(("scan", time.monotonic(), None))
+    async def scan(self, duration_s: float, *, until_address: str | None = None) -> dict[str, Advertisement]:
+        self.calls.append(("scan", time.monotonic(), until_address))
         self.scanning = True
         try:
             await asyncio.sleep(self.scan_delay_s)

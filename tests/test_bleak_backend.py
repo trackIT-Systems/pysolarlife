@@ -76,6 +76,18 @@ def test_scan_filters_by_manufacturer_and_averages_rssi(scanner):
     assert scanner.instances[0].started and scanner.instances[0].stopped
 
 
+def test_scan_ends_early_once_the_wanted_device_is_seen(scanner):
+    scanner.script = [(device("A"), advertisement(-60)), (device("B"), advertisement(-50))]
+    started = time.monotonic()
+    results = run(BleakBackend().scan(30, until_address="A"))
+    assert time.monotonic() - started < 1
+    assert "A" in results and scanner.instances[0].stopped
+    # a different wanted address is not seen, so the full duration is used
+    started = time.monotonic()
+    assert set(run(BleakBackend().scan(0.2, until_address="Z"))) == {"A", "B"}
+    assert time.monotonic() - started >= 0.2
+
+
 def test_scan_passes_the_adapter_and_survives_a_failing_stop(scanner):
     scanner.stop_error = RuntimeError("stop failed")
     assert run(BleakBackend("hci1").scan(0.01)) == {}

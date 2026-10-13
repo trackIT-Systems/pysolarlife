@@ -371,11 +371,11 @@ def test_a_failing_scan_does_not_kill_the_manager():
         calls = {"n": 0}
         original = backend.scan
 
-        async def flaky(duration):
+        async def flaky(duration, **kwargs):
             calls["n"] += 1
             if calls["n"] == 1:
                 raise RuntimeError("adapter not ready")
-            return await original(duration)
+            return await original(duration, **kwargs)
 
         backend.scan = flaky
         backend.scan_results = [{A: -60}]
@@ -413,5 +413,65 @@ def test_link_lost_during_a_read_fails_the_read():
             backend.links[0].trigger_disconnect()
             with pytest.raises(NotConnectedError):
                 await task
+
+    run(go())
+
+
+def test_after_a_failed_connect_a_short_scan_for_the_same_device_precedes_the_retry():
+    async def go():
+        backend = FakeBackend()
+        backend.scan_results = [{A: -60, B: -80}, {A: -60}]
+        backend.connect_script = [ConnectError("page timeout"), None]
+        async with Harness(backend) as h:
+            await until(lambda: h.manager.connected.is_set())
+            assert [(kind, addr) for kind, _, addr in backend.calls] == [
+                ("scan", None),
+                ("connect", A),
+                ("scan", A),  # the retry only needs a fresh handle for A
+                ("connect", A),
+            ]
+            # the early scan is incomplete, so it must not replace the survey of the full scan
+            assert set(h.manager.scan_results) == {A, B}
+
+    run(go())
+
+
+def test_the_retry_falls_back_to_a_full_selection_if_the_device_is_not_seen_again():
+    async def go():
+        backend = FakeBackend()
+        backend.scan_results = [{A: -60}, {B: -70}]
+        backend.connect_script = [ConnectError("page timeout"), None]
+        async with Harness(backend) as h:
+            await until(lambda: h.manager.connected.is_set())
+            assert h.manager.device.address == B
+
+    run(go())
+
+
+def test_a_stale_handle_costs_no_backoff_and_no_failure_count():
+    async def go():
+        backend = FakeBackend()
+        backend.scan_results = [{A: -60}]
+        backend.connect_script = [ConnectError("gone", not_found=True), ConnectError("gone", not_found=True), None]
+        async with Harness(backend, backoff_initial_s=5, backoff_max_s=5) as h:
+            await until(lambda: h.manager.connected.is_set(), timeout=1.5)  # would take 5 s+ with a backoff
+            assert h.manager._backoff.attempt == 0
+            assert h.manager._failures.get(A, 0) == 0
+            failed = [e for e in h.events if e.kind == "connect_failed"]
+            assert [e.data["retry_in_s"] for e in failed] == [0, 0]
+            assert ConnState.BACKOFF not in h.states
+
+    run(go())
+
+
+def test_after_a_remote_disconnect_the_same_device_is_looked_for_first():
+    async def go():
+        backend = FakeBackend()
+        backend.scan_results = [{A: -60, B: -80}]
+        async with Harness(backend) as h:
+            await until(lambda: h.manager.connected.is_set())
+            backend.links[0].trigger_disconnect()
+            await until(lambda: len(backend.links) == 2 and h.manager.connected.is_set())
+            assert [(kind, addr) for kind, _, addr in backend.calls][-2:] == [("scan", A), ("connect", A)]
 
     run(go())

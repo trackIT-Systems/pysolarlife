@@ -88,8 +88,9 @@ class BleakBackend:
     def _kwargs(self) -> dict[str, Any]:
         return {"adapter": self._adapter} if self._adapter else {}
 
-    async def scan(self, duration_s: float) -> dict[str, Advertisement]:
+    async def scan(self, duration_s: float, *, until_address: str | None = None) -> dict[str, Advertisement]:
         seen: dict[str, dict[str, Any]] = {}
+        found = asyncio.Event()
 
         def on_detect(device: Any, adv: Any) -> None:
             if MANUFACTURER_ID not in (adv.manufacturer_data or {}):
@@ -100,11 +101,16 @@ class BleakBackend:
             entry["device"] = device
             entry["name"] = adv.local_name or device.name or entry.get("name")
             entry["seen_at"] = time.monotonic()
+            if until_address is not None and device.address == until_address:
+                found.set()
 
         scanner = BleakScanner(detection_callback=on_detect, **self._kwargs())
         await scanner.start()
         try:
-            await asyncio.sleep(duration_s)
+            try:
+                await asyncio.wait_for(found.wait(), duration_s)
+            except TimeoutError:
+                pass
         finally:
             try:
                 await asyncio.wait_for(scanner.stop(), SCANNER_STOP_TIMEOUT_S)

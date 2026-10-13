@@ -60,8 +60,12 @@ class BleLink(Protocol):
 
 
 class BleBackend(Protocol):
-    async def scan(self, duration_s: float) -> dict[str, Advertisement]:
-        """Scan for SolarLife devices (manufacturer ID 0x03A0), keyed by address."""
+    async def scan(self, duration_s: float, *, until_address: str | None = None) -> dict[str, Advertisement]:
+        """Scan for SolarLife devices (manufacturer ID 0x03A0), keyed by address.
+
+        With ``until_address`` the scan ends early once that device has been seen, which
+        is enough to get a fresh handle for it. The result is then incomplete.
+        """
 
     async def connect(
         self,

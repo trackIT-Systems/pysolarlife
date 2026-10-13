@@ -144,6 +144,7 @@ class ConnectionManager:
         self._rescan_waiters: list[asyncio.Future] = []
         self._failures: dict[str, int] = {}
         self._candidate: Advertisement | None = None
+        self._retry_address: str | None = None  # the device we want a fresh handle for
         self._next_backoff_s: float | None = None
         self._connected_mono = 0.0
         self.next_rescan_mono: float | None = None  # for `status`
@@ -199,10 +200,19 @@ class ConnectionManager:
             adv = self._candidate
             stale = adv is not None and self._clock() - adv.seen_at > self.cfg.adv_max_age_s
             if adv is None or stale or self._rescan_waiters:
-                results = await self._scan(ConnState.SCANNING)
-                adv = self._candidate = select_device(
-                    results, None, None, self.cfg.address, self.cfg.switch_hysteresis_db, self._failures
-                )
+                # BlueZ forgets devices it does not see, and after a failed connect, so a handle
+                # from an earlier scan cannot be trusted. If we only need the same device again,
+                # the scan can end as soon as it is seen.
+                want = None if self._rescan_waiters else self._retry_address
+                results = await self._scan(ConnState.SCANNING, until_address=want)
+                if want is not None and want in results:
+                    adv = results[want]
+                else:
+                    self._retry_address = None
+                    adv = select_device(
+                        results, None, None, self.cfg.address, self.cfg.switch_hysteresis_db, self._failures
+                    )
+                self._candidate = adv
                 if adv is None:
                     self._set_state(ConnState.SCANNING)
                     await self._sleep(self.cfg.search_interval_s)
@@ -251,8 +261,18 @@ class ConnectionManager:
         in_progress = isinstance(exc, ConnectError) and exc.in_progress
         not_found = isinstance(exc, ConnectError) and exc.not_found
         message = str(exc) or type(exc).__name__
-        failures = self._failures[adv.address] = self._failures.get(adv.address, 0) + 1
         self.stats.last_error = message
+        # Whatever went wrong, the handle from the scan may be gone from BlueZ: scan again
+        # before the next attempt, but only for this device if it is still the one we want.
+        self._candidate = None
+        self._retry_address = adv.address
+        if not_found:
+            # Our handle was stale, not a radio problem: no backoff, no failure count.
+            self._next_backoff_s = None
+            log.info("connect to %s: BlueZ no longer knows the device, scanning again", adv.address)
+            self._event("connect_failed", adv.address, attempt=self.stats.connect_attempts, error=message, retry_in_s=0)
+            return
+        failures = self._failures[adv.address] = self._failures.get(adv.address, 0) + 1
         floor = self.cfg.inprogress_min_s if in_progress else 0.0
         delay = self._next_backoff_s = self._backoff.next(floor)
         self.stats.backoff_s = delay
@@ -260,9 +280,9 @@ class ConnectionManager:
             log.warning("connect to %s: BlueZ is busy (another client scanning or connecting?)", adv.address)
         else:
             log.info("connect to %s failed (%d): %s", adv.address, failures, message)
-        if not_found or failures >= self.cfg.max_connect_failures:
-            # The cached device is probably gone or unreachable: scan and select again.
-            self._candidate = None
+        if failures >= self.cfg.max_connect_failures:
+            # Probably unreachable from here: select again, with a penalty for this device.
+            self._retry_address = None
         self._event("connect_failed", adv.address, attempt=self.stats.connect_attempts, error=message, retry_in_s=round(delay, 2))
 
     def _on_connected(self, adv: Advertisement, session: DeviceSession) -> None:
@@ -274,6 +294,7 @@ class ConnectionManager:
         self.device = adv
         self.device_rssi = adv.rssi
         self._candidate = adv
+        self._retry_address = None
         self._connected_mono = self._clock()
         self.connected_since = datetime.now().astimezone()
         self.stats.connects += 1
@@ -344,18 +365,21 @@ class ConnectionManager:
             delay = self._next_backoff_s = self._backoff.next()
             self.stats.backoff_s = delay
             self._candidate = None  # the old advertisement is stale by the time we retry
+            self._retry_address = device.address if device else None
         else:
             self._next_backoff_s = None
 
     # -- scanning -----------------------------------------------------------
 
-    async def _scan(self, state: ConnState) -> dict[str, Advertisement]:
+    async def _scan(self, state: ConnState, until_address: str | None = None) -> dict[str, Advertisement]:
         waiters, self._rescan_waiters = self._rescan_waiters, []
         self._set_state(state)
         duration = self.cfg.scan_duration_s
         results: dict[str, Advertisement] = {}
         try:
-            results = await self._until_stop(asyncio.wait_for(self.backend.scan(duration), duration + SCAN_GRACE_S))
+            results = await self._until_stop(
+                asyncio.wait_for(self.backend.scan(duration, until_address=until_address), duration + SCAN_GRACE_S)
+            )
         except _Stopping:
             for waiter in waiters:
                 if not waiter.done():
@@ -365,10 +389,11 @@ class ConnectionManager:
             log.warning("scan failed: %s", exc)
             self.stats.last_error = f"scan: {exc}"
         else:
-            self.scan_results = dict(results)
-            self.last_scan_at = datetime.now().astimezone()
-            self.last_scan_mono = self._clock()
-            self._event("scan_completed", None, devices=len(results))
+            if until_address is None:  # an early-ended scan is incomplete, do not report it as a survey
+                self.scan_results = dict(results)
+                self.last_scan_at = datetime.now().astimezone()
+                self.last_scan_mono = self._clock()
+            self._event("scan_completed", None, devices=len(results), **({"until": until_address} if until_address else {}))
         for waiter in waiters:
             if not waiter.done():
                 waiter.set_result(dict(results))

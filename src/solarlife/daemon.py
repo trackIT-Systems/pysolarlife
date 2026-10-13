@@ -177,7 +177,7 @@ class Daemon:
         return {
             "version": __version__,
             "state": manager.state.value,
-            "since": utc_iso(manager.connected_since if manager.connected_since else self._state_since),
+            "since": utc_iso(manager.connected_since if manager.state is ConnState.CONNECTED and manager.connected_since else self._state_since),
             "uptime_s": round(now - self._started_mono),
             "device": self._device_info(),
             "blocks": {name: self.cache.describe(name) for name in BLOCKS},
@@ -267,14 +267,17 @@ class Daemon:
     async def _cmd_scan(self, args: dict[str, Any]) -> dict[str, Any]:
         manager = self.manager
         current = manager.device.address if manager.device and manager.session else None
-        devices = sorted(manager.scan_results.values(), key=lambda a: a.rssi, reverse=True)
-        return {
-            "time": utc_iso(manager.last_scan_at) if manager.last_scan_at else None,
-            "devices": [
-                {"address": a.address, "name": a.name, "rssi": round(a.rssi), "samples": a.samples, "current": a.address == current}
-                for a in devices
-            ],
-        }
+        devices = [
+            {"address": a.address, "name": a.name, "rssi": round(a.rssi), "samples": a.samples, "current": a.address == current, "advertising": True}
+            for a in sorted(manager.scan_results.values(), key=lambda a: a.rssi, reverse=True)
+        ]
+        if current is not None and all(d["address"] != current for d in devices):
+            # A connected SolarLife stops advertising, so a scan cannot see it. Report it anyway,
+            # with the signal strength it had when we connected.
+            device = manager.device
+            rssi = None if manager.device_rssi is None else round(manager.device_rssi)
+            devices.append({"address": current, "name": device.name, "rssi": rssi, "samples": 0, "current": True, "advertising": False})
+        return {"time": utc_iso(manager.last_scan_at) if manager.last_scan_at else None, "devices": devices}
 
 
 def state_device(cache: Cache) -> str | None:
