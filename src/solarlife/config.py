@@ -7,9 +7,11 @@ from typing import Any
 import yaml
 
 from solarlife.errors import ConfigError
+from solarlife.platform import DEFAULTS
 
-DEFAULT_CONFIG_PATH = Path("/boot/firmware/solarlife.yml")
-DEFAULT_SOCKET_PATH = Path("/run/solarlife/solarlife.sock")
+DEFAULT_CONFIG_PATH = DEFAULTS.config
+DEFAULT_SOCKET_PATH = DEFAULTS.socket  # a path, or tcp://127.0.0.1:port where there are no Unix sockets
+DEFAULT_DATA_DIR = DEFAULTS.data_dir
 
 
 @dataclass(frozen=True)
@@ -42,7 +44,7 @@ class PollingConfig:
 @dataclass(frozen=True)
 class CsvConfig:
     enabled: bool = True
-    path: Path = Path("/data")
+    path: Path = DEFAULT_DATA_DIR
 
 
 @dataclass(frozen=True)
@@ -57,7 +59,7 @@ class MqttConfig:
 
 @dataclass(frozen=True)
 class DaemonConfig:
-    socket: Path = DEFAULT_SOCKET_PATH
+    socket: Path | str = DEFAULT_SOCKET_PATH
     socket_mode: int = 0o660
     log_level: str = "INFO"
     csv: CsvConfig = field(default_factory=CsvConfig)
@@ -189,6 +191,17 @@ def _parse_polling(raw: dict[str, Any]) -> PollingConfig:
     )
 
 
+def _parse_socket(value: Any) -> Path | str:
+    """A Unix socket path, or tcp://127.0.0.1:port (the default on Windows, which has no usable Unix sockets)."""
+    text = str(value)
+    if text.startswith("tcp://"):
+        from solarlife.ipc import parse_endpoint
+
+        parse_endpoint(text)  # raises ConfigError for a bad or non-loopback address
+        return text
+    return Path(text).expanduser()
+
+
 def _parse_mode(value: Any) -> int:
     if isinstance(value, bool):
         raise ConfigError("daemon.socket_mode must be an octal mode")
@@ -215,12 +228,12 @@ def _parse_daemon(raw: dict[str, Any]) -> DaemonConfig:
     _check_keys(mqtt_raw, {f.name for f in fields(MqttConfig)}, "daemon.mqtt")
     md = MqttConfig()
     return DaemonConfig(
-        socket=Path(_str(raw, "socket", str(d.socket), "daemon") or d.socket),
+        socket=_parse_socket(_str(raw, "socket", str(d.socket), "daemon") or d.socket),
         socket_mode=_parse_mode(raw.get("socket_mode", d.socket_mode)),
         log_level=level,
         csv=CsvConfig(
             enabled=_bool(csv_raw, "enabled", True, "daemon.csv"),
-            path=Path(_str(csv_raw, "path", str(CsvConfig().path), "daemon.csv") or CsvConfig().path),
+            path=Path(_str(csv_raw, "path", str(CsvConfig().path), "daemon.csv") or CsvConfig().path).expanduser(),
         ),
         mqtt=MqttConfig(
             enabled=_bool(mqtt_raw, "enabled", md.enabled, "daemon.mqtt"),

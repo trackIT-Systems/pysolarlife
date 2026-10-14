@@ -15,7 +15,7 @@ from typing import Any
 
 from solarlife import __version__
 from solarlife.ble import BleBackend
-from solarlife.config import AppConfig, load_config
+from solarlife.config import DEFAULT_CONFIG_PATH, AppConfig, load_config
 from solarlife.errors import ConfigError, NotConnectedError, SolarlifeError
 from solarlife.manager import ConnectionManager, ConnState
 from solarlife.outputs import Output, Outputs
@@ -110,8 +110,7 @@ class Daemon:
     async def run(self, *, handle_signals: bool = True) -> int:
         loop = asyncio.get_running_loop()
         if handle_signals:
-            for sig in (signal.SIGTERM, signal.SIGINT):
-                loop.add_signal_handler(sig, self.stop_event.set)
+            self._install_signal_handlers(loop)
         self._on_event(Event(datetime.now().astimezone(), "daemon_started", None, {"version": __version__}))
         await self.server.start()
         manager_task = asyncio.create_task(self.manager.run(), name="manager")
@@ -126,6 +125,17 @@ class Daemon:
         finally:
             await self._shutdown(manager_task, poller_task, stopper)
         return exit_code
+
+    def _install_signal_handlers(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Stop on SIGTERM and SIGINT. Windows event loops have no add_signal_handler: signal.signal then."""
+        for name in ("SIGTERM", "SIGINT", "SIGBREAK"):  # SIGBREAK: Ctrl+Break on Windows
+            sig = getattr(signal, name, None)
+            if sig is None:
+                continue
+            try:
+                loop.add_signal_handler(sig, self.stop_event.set)
+            except NotImplementedError:
+                signal.signal(sig, lambda *_: loop.call_soon_threadsafe(self.stop_event.set))
 
     async def _shutdown(self, manager_task: asyncio.Task, poller_task: asyncio.Task, stopper: asyncio.Task) -> None:
         log.info("shutting down")
@@ -290,7 +300,7 @@ def state_device(cache: Cache) -> str | None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="solarlifed", description="Hold a BLE connection to a SolarLife MPPT controller and report its values (CSV, MQTT).")
     parser.add_argument("-V", "--version", action="version", version=f"%(prog)s {__version__}")
-    parser.add_argument("--config", type=Path, default=None, help="config file (default: /boot/firmware/solarlife.yml)")
+    parser.add_argument("--config", type=Path, default=None, help=f"config file (default: {DEFAULT_CONFIG_PATH})")
     parser.add_argument("-v", "--verbose", action="count", default=0, help="more log output (-v: DEBUG)")
     args = parser.parse_args(argv)
     try:

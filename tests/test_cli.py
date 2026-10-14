@@ -1,6 +1,8 @@
 import asyncio
 import json
+import os
 import shutil
+import sys
 import tempfile
 import threading
 from datetime import datetime, timedelta, timezone
@@ -8,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from fakes import free_port
 from solarlife import cli
 from solarlife.errors import DeviceException, NotConnectedError
 from solarlife.server import ControlServer
@@ -15,7 +18,7 @@ from solarlife.server import ControlServer
 NOW = datetime(2026, 10, 13, 12, 0, 0, tzinfo=timezone.utc)
 VALUE = {"name": "battery_voltage_level", "friendly": "Current battery voltage level", "unit": "V", "address": "0x3032", "value": 24.0}
 STATUS = {
-    "version": "0.4.0",
+    "version": "1.0.0",
     "state": "connected",
     "since": (NOW - timedelta(hours=2, minutes=3)).isoformat().replace("+00:00", "Z"),
     "uptime_s": 7500,
@@ -87,8 +90,8 @@ class StubDaemon:
     """A real ControlServer with canned handlers, in a background thread."""
 
     def __init__(self, handlers):
-        self.dir = Path(tempfile.mkdtemp(dir="/tmp", prefix="sl-"))
-        self.sock = self.dir / "s.sock"
+        self.dir = Path(tempfile.mkdtemp(dir="/tmp" if os.path.isdir("/tmp") else None, prefix="sl-"))
+        self.sock = f"tcp://127.0.0.1:{free_port()}" if sys.platform.startswith("win") else self.dir / "s.sock"
         self.calls = []
         self.handlers = {name: self._wrap(name, h) for name, h in handlers.items()}
         self.loop = asyncio.new_event_loop()
@@ -132,7 +135,7 @@ def test_status_command(capsys):
     with StubDaemon({"status": STATUS}) as d:
         assert run_cli(d, "status") == 0
     out = capsys.readouterr().out
-    assert "A4:C1:38:6F:0E:2B" in out and "solarlifed 0.4.0" in out
+    assert "A4:C1:38:6F:0E:2B" in out and "solarlifed 1.0.0" in out
 
 
 def test_json_flag_works_before_and_after_the_command(capsys):
@@ -223,8 +226,10 @@ def test_daemon_errors_give_exit_code_1(capsys):
 
 
 def test_unreachable_daemon_gives_exit_code_3(capsys, tmp_path):
-    assert cli.main(["--socket", "/tmp/solarlife-test-none.sock", "status"]) == 3
+    assert cli.main(["--socket", f"tcp://127.0.0.1:{free_port()}", "status"]) == 3
     assert "is solarlifed running" in capsys.readouterr().err
+    if sys.platform.startswith("win"):
+        return  # no Unix sockets
     # a path that is too long for a unix socket is also just "unreachable", not a traceback
     assert cli.main(["--socket", str(tmp_path / ("x" * 120) / "none.sock"), "status"]) == 3
     assert "cannot connect" in capsys.readouterr().err
@@ -244,6 +249,9 @@ def test_socket_comes_from_an_explicit_config(tmp_path, capsys):
     config.write_text("daemon:\n  socket: /tmp/from-config.sock\n")
     args = cli.build_parser().parse_args(["--config", str(config), "status"])
     assert cli.resolve_socket(args) == Path("/tmp/from-config.sock")
+    config.write_text("daemon:\n  socket: tcp://127.0.0.1:5000\n")
+    assert cli.resolve_socket(cli.build_parser().parse_args(["--config", str(config), "status"])) == "tcp://127.0.0.1:5000"
+    config.write_text("daemon:\n  socket: /tmp/from-config.sock\n")
     args = cli.build_parser().parse_args(["--config", str(tmp_path / "missing.yml"), "status"])
     with pytest.raises(Exception, match="not found"):
         cli.resolve_socket(args)

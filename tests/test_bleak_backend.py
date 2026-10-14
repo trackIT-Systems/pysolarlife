@@ -88,7 +88,8 @@ def test_scan_ends_early_once_the_wanted_device_is_seen(scanner):
     assert time.monotonic() - started >= 0.2
 
 
-def test_scan_passes_the_adapter_and_survives_a_failing_stop(scanner):
+def test_scan_passes_the_adapter_and_survives_a_failing_stop(scanner, monkeypatch):
+    monkeypatch.setattr(backend_module.sys, "platform", "linux")
     scanner.stop_error = RuntimeError("stop failed")
     assert run(BleakBackend("hci1").scan(0.01)) == {}
     assert scanner.instances[0].kwargs == {"adapter": "hci1"}
@@ -154,7 +155,8 @@ def client(monkeypatch):
     return FakeClient
 
 
-def test_connect_uses_the_scanned_device_and_returns_a_link(client):
+def test_connect_uses_the_scanned_device_and_returns_a_link(client, monkeypatch):
+    monkeypatch.setattr(backend_module.sys, "platform", "linux")
     async def go():
         link = await BleakBackend("hci0").connect(adv(handle="the-ble-device"), timeout_s=5, on_disconnect=lambda: None)
         assert isinstance(link, BleakLink) and link.is_connected and link.address == "AA:BB:CC:DD:EE:FF"
@@ -290,3 +292,32 @@ def test_error_mapping_helpers():
     assert map_connect_error(RuntimeError("x")).in_progress is False
     assert isinstance(map_write_error(BleakError("x"), connected=True), LinkError)
     assert isinstance(map_write_error(BleakError("Not connected"), connected=True), NotConnectedError)
+
+
+def test_device_identity_is_the_mac_address_on_every_system():
+    mac = bytes.fromhex("1023810c0dc6")
+    assert backend_module.device_identity("10:23:81:0c:0d:c6", {MANUFACTURER_ID: mac}) == "10:23:81:0C:0D:C6"
+    # macOS: a CoreBluetooth UUID, the MAC address is in the manufacturer data
+    uuid = "6D2F8A3C-1B4E-4F7A-9C0D-5E8B7A6F1234"
+    assert backend_module.device_identity(uuid, {MANUFACTURER_ID: mac}) == "10:23:81:0C:0D:C6"
+    # no usable manufacturer data: the stack's address
+    assert backend_module.device_identity(uuid, {MANUFACTURER_ID: b"\x10\x23"}) == uuid
+    assert backend_module.device_identity(uuid, None) == uuid
+
+
+def test_scan_names_a_macos_device_by_its_mac_address(scanner):
+    uuid = "6D2F8A3C-1B4E-4F7A-9C0D-5E8B7A6F1234"
+    hit = SimpleNamespace(rssi=-55, manufacturer_data={MANUFACTURER_ID: bytes.fromhex("1023810c0dc6")}, local_name="SolarLife")
+    scanner.script = [(device(uuid), hit)]
+    results = run(BleakBackend().scan(30, until_address="10:23:81:0C:0D:C6"))
+    assert set(results) == {"10:23:81:0C:0D:C6"} and results["10:23:81:0C:0D:C6"].handle.address == uuid
+
+
+def test_the_adapter_is_only_used_on_linux(scanner, monkeypatch, caplog):
+    monkeypatch.setattr(backend_module.sys, "platform", "linux")
+    run(BleakBackend("hci1").scan(0.01))
+    assert scanner.instances[-1].kwargs == {"adapter": "hci1"}
+    monkeypatch.setattr(backend_module.sys, "platform", "darwin")
+    with caplog.at_level("WARNING"):
+        run(BleakBackend("hci1").scan(0.01))
+    assert scanner.instances[-1].kwargs == {} and "only used with BlueZ" in caplog.text

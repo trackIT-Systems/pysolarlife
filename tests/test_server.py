@@ -2,6 +2,7 @@ import asyncio
 import os
 import shutil
 import stat
+import sys
 import tempfile
 from pathlib import Path
 
@@ -23,6 +24,8 @@ from solarlife.server import BadRequest, ControlServer, error_type
 @pytest.fixture
 def sock_path():
     # unix socket paths are limited to ~100 characters (104 on macOS), pytest's tmp_path is too long
+    if sys.platform.startswith("win"):
+        pytest.skip("no Unix sockets")
     directory = tempfile.mkdtemp(dir="/tmp", prefix="sl-")
     yield Path(directory) / "sub" / "s.sock"
     shutil.rmtree(directory, ignore_errors=True)
@@ -251,3 +254,28 @@ def test_a_socket_path_that_is_too_long_is_a_clean_error(sock_path):
             await server.start()
 
     run(go())
+
+
+def test_the_server_and_the_client_also_talk_over_loopback_tcp():
+    from fakes import free_port
+
+    async def go():
+        endpoint = f"tcp://127.0.0.1:{free_port()}"
+        server = ControlServer(endpoint, 0o660, make_handlers())
+        await server.start()
+        try:
+            assert await call(endpoint, "echo", {"a": 1}) == {"echo": {"a": 1}}
+            with pytest.raises(DaemonError) as err:
+                await call(endpoint, "not_connected")
+            assert err.value.type == "not_connected"
+        finally:
+            await server.stop()
+        with pytest.raises(DaemonUnreachable):
+            await call(endpoint, "echo")
+
+    run(go())
+
+
+def test_a_bad_endpoint_is_reported_as_unreachable():
+    with pytest.raises(DaemonUnreachable, match="loopback"):
+        ipc.request("tcp://192.168.1.5:5000", "status")

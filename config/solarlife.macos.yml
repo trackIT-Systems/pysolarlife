@@ -1,0 +1,50 @@
+# solarlifed configuration for macOS (see docs/platforms.md). Copy it to
+#   ~/Library/Application Support/solarlife/solarlife.yml
+# (the default place) or pass it with --config. "~" is expanded.
+#
+# Differences to the Linux example (config/solarlife.yml):
+#  * Everything lives under ~/Library/Application Support/solarlife instead of /boot, /run, /data.
+#  * ble.adapter does not exist (CoreBluetooth has one adapter) and is ignored.
+#  * macOS hides MAC addresses from programs, the daemon reads the MAC address of a device from
+#    its advertisement instead: ble.address and the addresses in `scan` are MAC addresses here, too.
+#  * The first start asks for Bluetooth permission for the terminal or app that runs the daemon
+#    (System Settings > Privacy & Security > Bluetooth).
+
+ble:
+  # address: "10:23:81:1E:97:4C"   # pin a device (disables RSSI selection and switching)
+  scan_duration_s: 10
+  search_interval_s: 60
+  rescan_interval_s: 3600
+  switch_hysteresis_db: 10
+  adv_max_age_s: 20
+  # The Wi-Fi/Bluetooth coexistence problem of the Raspberry Pi does not exist on a Mac: a
+  # connection should open at the first try. The timeout is kept generous anyway.
+  connect_timeout_s: 45
+  backoff_initial_s: 2
+  backoff_max_s: 30
+  inprogress_min_s: 5
+  stable_after_s: 60
+  max_connect_failures: 10
+  request_timeout_s: 2
+  request_attempts: 3
+
+polling:
+  status_interval_s: 60
+  parameters_interval_s: 3600
+  reconnect_after_failures: 3
+  stale_after_factor: 3
+
+daemon:
+  socket: ~/Library/Application Support/solarlife/solarlife.sock
+  socket_mode: "0600"            # only you
+  log_level: INFO
+  csv:
+    enabled: true
+    path: ~/Library/Application Support/solarlife/data
+  mqtt:
+    enabled: false               # set true when a broker is running (brew install mosquitto)
+    host: localhost
+    port: 1883
+    qos: 0
+    json: true
+    cbor: true

@@ -1,7 +1,10 @@
 import asyncio
 import csv
 import json
+import os
 import shutil
+import socket
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -9,7 +12,7 @@ from pathlib import Path
 import cbor2
 import pytest
 
-from fakes import FakeBackend, FakeDevice, FakeMqtt
+from fakes import FakeBackend, FakeDevice, FakeMqtt, free_port
 from solarlife import ipc
 from solarlife.config import AppConfig, BleConfig, CsvConfig, DaemonConfig, MqttConfig, PollingConfig
 from solarlife.daemon import Daemon
@@ -25,9 +28,11 @@ B = "B4:C1:38:6F:0E:2C"
 class Env:
     """A daemon wired to the fake backend, with real socket and real CSV/MQTT sinks."""
 
-    def __init__(self, scan_results, **ble):
-        self.dir = Path(tempfile.mkdtemp(dir="/tmp", prefix="sl-"))
-        self.sock = self.dir / "run" / "s.sock"
+    def __init__(self, scan_results, *, tcp=False, **ble):
+        # a short directory: macOS limits the length of a Unix socket path
+        self.dir = Path(tempfile.mkdtemp(dir="/tmp" if os.path.isdir("/tmp") else None, prefix="sl-"))
+        self.tcp = tcp or sys.platform.startswith("win")  # Windows has no usable Unix sockets
+        self.sock = f"tcp://127.0.0.1:{free_port()}" if self.tcp else self.dir / "run" / "s.sock"
         self.csv_path = self.dir / "data" / "out.csv"
         self.mqtt = FakeMqtt()
         self.backend = FakeBackend()
@@ -49,8 +54,17 @@ class Env:
 
     async def __aenter__(self):
         self.task = asyncio.create_task(self.daemon.run(handle_signals=False))
-        await until(lambda: self.sock.exists())
+        await until(self._listening)
         return self
+
+    def _listening(self) -> bool:
+        if not self.tcp:
+            return self.sock.exists()
+        try:
+            socket.create_connection((self.daemon.server.endpoint.host, self.daemon.server.endpoint.port), timeout=0.2).close()
+            return True
+        except OSError:
+            return False
 
     async def __aexit__(self, *exc):
         await self.stop()
@@ -282,7 +296,7 @@ def test_main_reports_startup_problems_without_a_traceback(tmp_path, capsys, mon
     blocked = tmp_path / "file"
     blocked.write_text("x")  # a file where the csv directory should be created
     config = tmp_path / "c.yml"
-    config.write_text(f"daemon:\n  socket: /tmp/sl-main-test.sock\n  csv: {{path: {blocked}}}\n  mqtt: {{enabled: false}}\n")
+    config.write_text(f"daemon:\n  socket: tcp://127.0.0.1:{free_port()}\n  csv: {{path: {blocked}}}\n  mqtt: {{enabled: false}}\n")
     monkeypatch.setattr("solarlife.ble.bleak_backend.BleakBackend", lambda adapter=None: FakeBackend())
     assert daemon.main(["--config", str(config)]) == 1
     assert "error:" in capsys.readouterr().err

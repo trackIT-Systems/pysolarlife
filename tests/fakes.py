@@ -20,6 +20,14 @@ STATUS_WORDS = [
 PARAMETER_WORDS = [0, 1060, 1180, 1440, 1470, 1360, 0, 1440, 1400, 0, 0, 0]
 
 
+def free_port() -> int:
+    import socket
+
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
 def default_registers() -> dict[int, int]:
     registers = {0x3030 + i: word for i, word in enumerate(STATUS_WORDS)}
     registers.update({0x9021 + i: word for i, word in enumerate(PARAMETER_WORDS)})

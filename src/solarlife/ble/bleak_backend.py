@@ -1,6 +1,10 @@
-"""BleBackend on top of bleak (BlueZ on the Pi).
+"""BleBackend on top of bleak (BlueZ on Linux, CoreBluetooth on macOS, WinRT on Windows).
 
 Only API that exists in bleak 0.22 (Debian) and 1.x is used.
+
+* A device is identified by its MAC address on every system. macOS hides it (CoreBluetooth hands
+  out a UUID that is only valid on that Mac); the advertisement carries it as manufacturer data,
+  which is where it is read from then (see ``device_identity``).
 
 * Connects with the BLEDevice from a scan, never with an address string: bleak would
   otherwise run its own hidden scan first, which BlueZ may refuse while we scan.
@@ -12,6 +16,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
+import sys
 import time
 from collections.abc import Callable
 from typing import Any
@@ -24,9 +30,24 @@ from solarlife.errors import ConnectError, LinkError, NotConnectedError
 
 log = logging.getLogger(__name__)
 
+MAC_ADDRESS = re.compile(r"^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$")
 SCANNER_STOP_TIMEOUT_S = 5.0
 DISCONNECT_TIMEOUT_S = 10.0
 CONNECT_GRACE_S = 5.0
+
+
+def device_identity(address: str, manufacturer_data: dict[int, bytes] | None) -> str:
+    """The MAC address of a device, upper case with colons.
+
+    The stack's address if it is one (Linux, Windows). Otherwise (macOS: a UUID) the six bytes the
+    device puts into its manufacturer data, if it does; else the stack's address unchanged.
+    """
+    if MAC_ADDRESS.match(address):
+        return address.upper()
+    data = (manufacturer_data or {}).get(MANUFACTURER_ID)
+    if data is not None and len(data) == 6:
+        return ":".join(f"{byte:02X}" for byte in data)
+    return address
 
 
 def dbus_error_name(exc: BaseException) -> str:
@@ -84,9 +105,17 @@ class BleakLink:
 class BleakBackend:
     def __init__(self, adapter: str | None = None) -> None:
         self._adapter = adapter
+        self._warned_adapter = False
 
     def _kwargs(self) -> dict[str, Any]:
-        return {"adapter": self._adapter} if self._adapter else {}
+        if not self._adapter:
+            return {}
+        if not sys.platform.startswith("linux"):
+            if not self._warned_adapter:
+                log.warning("ble.adapter is only used with BlueZ (Linux); ignored")
+                self._warned_adapter = True
+            return {}
+        return {"adapter": self._adapter}
 
     async def scan(self, duration_s: float, *, until_address: str | None = None) -> dict[str, Advertisement]:
         seen: dict[str, dict[str, Any]] = {}
@@ -95,13 +124,14 @@ class BleakBackend:
         def on_detect(device: Any, adv: Any) -> None:
             if MANUFACTURER_ID not in (adv.manufacturer_data or {}):
                 return
-            entry = seen.setdefault(device.address, {"rssi": []})
+            identity = device_identity(device.address, adv.manufacturer_data)
+            entry = seen.setdefault(identity, {"rssi": []})
             if adv.rssi is not None:
                 entry["rssi"].append(adv.rssi)
             entry["device"] = device
             entry["name"] = adv.local_name or device.name or entry.get("name")
             entry["seen_at"] = time.monotonic()
-            if until_address is not None and device.address == until_address:
+            if until_address is not None and identity == until_address:
                 found.set()
 
         scanner = BleakScanner(detection_callback=on_detect, **self._kwargs())
