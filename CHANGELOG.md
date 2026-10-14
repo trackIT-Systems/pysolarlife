@@ -39,7 +39,7 @@ A rewrite: from a library for one-shot reads to a daemon and a CLI. It breaks wi
 
 ## [0.3.0] - 2026-02-27
 
-Reconstructed from the git history (the tag is `0.3.0`, without a `v`).
+Reconstructed from the git history. The tags of these versions were added afterwards (`v0.1.0`, `v0.2.0`, `v0.3.0`; an older tag `0.3.0` without the `v` points to the same commit).
 
 ### Added
 
@@ -74,6 +74,6 @@ The version of the refactoring into a package (the project began in 2023 as a fo
 - The standalone MQTT / Home Assistant program became a library; the Home Assistant bridge was removed.
 
 [1.0.0]: https://github.com/trackIT-Systems/pysolarlife/releases/tag/v1.0.0
-[0.3.0]: https://github.com/trackIT-Systems/pysolarlife/releases/tag/0.3.0
-[0.2.0]: https://github.com/trackIT-Systems/pysolarlife/commits/main
-[0.1.0]: https://github.com/trackIT-Systems/pysolarlife/commits/main
+[0.3.0]: https://github.com/trackIT-Systems/pysolarlife/releases/tag/v0.3.0
+[0.2.0]: https://github.com/trackIT-Systems/pysolarlife/releases/tag/v0.2.0
+[0.1.0]: https://github.com/trackIT-Systems/pysolarlife/releases/tag/v0.1.0
