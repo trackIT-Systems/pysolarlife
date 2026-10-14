@@ -16,12 +16,22 @@ Opening a BLE connection is the unreliable step, especially on a Raspberry Pi wh
 
 ## Install
 
-Python 3.12+, `bleak`, `paho-mqtt`, `cbor2`, `PyYAML` (all available as Debian `python3-*` packages).
+Python 3.12+, `bleak`, `paho-mqtt`, `cbor2`, `PyYAML` (all available as Debian `python3-*` packages). Releases are on the [releases page](https://github.com/trackIT-Systems/pysolarlife/releases) (wheel and source archive; see [CHANGELOG.md](CHANGELOG.md)):
+
+```bash
+pip install https://github.com/trackIT-Systems/pysolarlife/releases/download/v1.0.0/solarlife-1.0.0-py3-none-any.whl
+```
+
+From a checkout:
 
 ```bash
 pip install -e ".[dev]"
 pytest
 ```
+
+## Platforms
+
+Linux (tsOS, a Raspberry Pi) is the system it was built and tried on. macOS and Windows should work through bleak (CoreBluetooth, WinRT) and are tested against fakes in CI, but **have not been tried with a real controller**; see [docs/platforms.md](docs/platforms.md) for what differs (paths, the control socket on Windows, device names on macOS). An example config for macOS is [config/solarlife.macos.yml](config/solarlife.macos.yml).
 
 ## Daemon
 
@@ -31,7 +41,7 @@ solarlifed                                   # reads /boot/firmware/solarlife.ym
 solarlifed --config ./config/solarlife.yml -v
 ```
 
-See [config/solarlife.yml](config/solarlife.yml) for all options. It needs access to BlueZ over D-Bus and write access to the CSV directory. SIGTERM disconnects cleanly and publishes the state `offline`.
+See [config/solarlife.yml](config/solarlife.yml) for all options (the default config path, socket and CSV directory depend on the system, see [docs/platforms.md](docs/platforms.md)). On Linux it needs access to BlueZ over D-Bus and write access to the CSV directory. SIGTERM disconnects cleanly and publishes the state `offline`.
 
 ### Output
 
@@ -85,20 +95,24 @@ solarlife profile load before.yml -y   restore
 
 All parameters, accepted values and the file format are in [docs/parameters.md](docs/parameters.md). The built-in voltages are typical values: check them against your battery's datasheet.
 
-The CLI and the daemon talk newline-delimited JSON over a Unix socket (`daemon.socket`): `{"id": 1, "cmd": "read", "args": {"block": "status"}}` answers `{"id": 1, "ok": true, "result": ...}` or `{"id": 1, "ok": false, "error": {"type": "not_connected", "message": ...}}`.
+The CLI and the daemon talk newline-delimited JSON over a Unix socket (`daemon.socket`; loopback TCP on Windows): `{"id": 1, "cmd": "read", "args": {"block": "status"}}` answers `{"id": 1, "ok": true, "result": ...}` or `{"id": 1, "ok": false, "error": {"type": "not_connected", "message": ...}}`. The commands, arguments, results and errors are documented in [docs/control-socket.md](docs/control-socket.md). **There is no authentication**: whoever can reach the socket can write settings.
 
 ## Troubleshooting
 
 **Connecting takes minutes, or fails with `connect timed out`, `br-connection-canceled`, `failed to discover services, device disconnected`.** On a Raspberry Pi with a 2.4 GHz access point up, Bluetooth and Wi-Fi compete for the radio and opening a connection often fails, while the same device connects immediately from a phone. An open connection is not affected, which is why the daemon holds it. Moving the access point to 5 GHz fixes it where the hardware supports that. The connect timeout is long on purpose (45 s): BlueZ retries internally and a connect often succeeds after 10-40 s.
 
+## Documentation
+
+[docs/](docs/README.md): the BLE protocol, the parameters and profiles, the advertisement, platforms, the control socket API, quirks and open questions, releasing. [CHANGELOG.md](CHANGELOG.md) lists the changes of every release.
+
 ## Layout
 
-`src/solarlife/`: `protocol.py`, `variables.py`, `crc.py` (the register protocol), `session.py` (one held link), `manager.py` (scan and connect state machine), `poller.py`, `registers.py` (blocks and write validation), `profiles.py` (parameter sets, `premade/`), `outputs/`, `server.py` and `ipc.py` (control socket), `daemon.py`, `cli.py`, `ble/` (transport interface; only `ble/bleak_backend.py` imports bleak).
+`src/solarlife/`: `protocol.py`, `variables.py`, `crc.py` (the register protocol), `session.py` (one held link), `manager.py` (scan and connect state machine), `poller.py`, `registers.py` (blocks and write validation), `profiles.py` (parameter sets, `premade/`), `outputs/`, `server.py` and `ipc.py` (control socket), `platform.py` (per-system defaults), `daemon.py`, `cli.py`, `ble/` (transport interface; only `ble/bleak_backend.py` imports bleak).
 `tests/` runs without BLE hardware against a fake backend (`tests/fakes.py`).
 
 ## Credits
 
-The register protocol comes from [subDesTagesMitExtraKaese/solarlife-mppt-ble-client](https://github.com/subDesTagesMitExtraKaese/solarlife-mppt-ble-client).
+The BLE protocol was reverse engineered by [subDesTagesMitExtraKaese](https://github.com/subDesTagesMitExtraKaese/solarlife-mppt-ble-client), whose client this project started from (the register table, `src/solarlife/variables.py`, comes from the manufacturer's register documentation as imported there). Further fixes to the calculations came from David Dubrović (pull request 3 of that project).
 
 ## License
 

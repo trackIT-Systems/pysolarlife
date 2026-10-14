@@ -64,6 +64,10 @@ Use both name and manufacturer data for robust discrimination:
 1. Filter by name `"SolarLife"` for quick identification
 2. Verify with manufacturer data (Company ID `0x03A0`) for confirmation
 
+## The MAC address as identity on every system
+
+The manufacturer data carries the MAC address, which `solarlifed` uses on macOS: CoreBluetooth hides the MAC address and hands out a UUID that is only valid on that Mac, so the daemon takes the six bytes from the advertisement instead (`solarlife.ble.bleak_backend.device_identity`). Where the Bluetooth stack reports a MAC address (Linux, Windows) it is used as it is. Only the one device `10:23:81:0C:0D:C6` below was examined; that the six bytes are the MAC address on every SolarLife model is an assumption (see [unknowns.md](unknowns.md)).
+
 ## Comparison with Other Devices
 
 During scanning, other devices showed:
