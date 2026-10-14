@@ -187,7 +187,7 @@ def test_in_progress_errors_wait_at_least_the_floor():
         async with Harness(backend, inprogress_min_s=0.15) as h:
             await until(lambda: h.manager.connected.is_set())
             connects = [t for kind, t, _ in backend.calls if kind == "connect"]
-            assert connects[1] - connects[0] >= 0.15
+            assert connects[1] - connects[0] >= 0.15 - 0.03  # Windows' clock ticks every ~15 ms
 
     run(go())
 

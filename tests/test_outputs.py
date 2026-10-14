@@ -1,6 +1,7 @@
 import csv
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 
 import cbor2
 
@@ -25,7 +26,7 @@ def reading():
 
 def test_csv_session_path():
     path = csv_session_path("/data", "tracker", WHEN)
-    assert str(path) == "/data/tracker/solarlife/tracker_2026-10-13T100300-solarlife.csv"
+    assert path == Path("/data/tracker/solarlife/tracker_2026-10-13T100300-solarlife.csv")
 
 
 def test_csv_rows_and_events(tmp_path):
