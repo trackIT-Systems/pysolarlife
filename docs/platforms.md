@@ -1,10 +1,10 @@
 # Platforms
 
-`solarlifed` and `solarlife` are written for the Raspberry Pi (tsOS, Linux), but the code is portable: Bluetooth goes through [bleak](https://github.com/hbldh/bleak) (BlueZ on Linux, CoreBluetooth on macOS, WinRT on Windows). This page says what differs. The tests run on all three systems in CI against a fake backend; **only Linux (a Raspberry Pi) was tried with a real controller**. Treat macOS and Windows as unverified until someone has run them with hardware.
+`solarlifed` and `solarlife` are written for the Raspberry Pi (tsOS, Linux), but the code is portable: Bluetooth goes through [bleak](https://github.com/hbldh/bleak) (BlueZ on Linux, CoreBluetooth on macOS, WinRT on Windows). This page says what differs. The tests run on all three systems in CI against a fake backend; **Linux (a Raspberry Pi) and macOS (an Apple-silicon Mac, Python 3.14) were tried with a real controller; Windows was not** and stays unverified until someone has run it with hardware.
 
 | | Linux (tsOS) | macOS | Windows |
 |---|---|---|---|
-| Scanning, connecting, polling | yes | should work | should work |
+| Scanning, connecting, polling | yes | yes (tried) | should work |
 | Pairing | not needed | not needed | not needed |
 | Device names (`ble.address`, MQTT topic) | MAC address | MAC address (read from the advertisement) | MAC address |
 | `ble.adapter` | BlueZ adapter (`hci0`) | ignored (warning) | ignored (warning) |
@@ -20,7 +20,8 @@ An example config for macOS with the paths and notes below is [config/solarlife.
 * **Permissions.** macOS asks for Bluetooth permission for the terminal or app that runs the daemon on the first scan (System Settings > Privacy & Security > Bluetooth).
 * **`ble.adapter`** selects a BlueZ adapter and is ignored elsewhere (with a warning).
 * **The Wi-Fi/Bluetooth coexistence problem** of the Raspberry Pi ([quirks.md](quirks.md)) does not apply to PCs with separate radios; connecting should be much faster and more reliable there. The long connect timeout and the backoff stay as they are.
-* **Not verified on a real device:** how WinRT and CoreBluetooth chunk the notifications (the session reassembles whatever arrives), whether the connect is as quick as expected, whether a connected device is still hidden from scans.
+* **Tried on macOS** (2026-10-14, Apple-silicon Mac, a device at -74 dBm): the daemon found the controller, connected at the first attempt, read the `status` and `parameters` blocks live and shut down cleanly; the scan showed the CoreBluetooth UUID while the daemon reported the MAC address from the advertisement. Writes were not tried there. The controller was not advertising while the Raspberry Pi held its connection: stop `solarlife.service` there (or any other client) before connecting from another machine; a controller takes one connection.
+* **Not verified:** Windows (WinRT) in every respect, and macOS writes.
 
 ## Control socket
 

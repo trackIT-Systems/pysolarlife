@@ -23,5 +23,5 @@ What is guessed, copied or not understood, so nobody has to rediscover that.
 
 ## Platforms
 
-* **macOS and Windows were never tried with a real controller.** The tests run against fakes on all three systems. Open: whether CoreBluetooth and WinRT deliver notifications in the same chunks, how long a connect takes, whether the device needs pairing there.
+* **Windows was never tried with a real controller**, and writes were not tried on macOS. The tests run against fakes on all three systems. Open: whether WinRT delivers notifications in the same chunks and whether a connect is quick there.
 * **Passive scanning** ([issue 2](https://github.com/trackIT-Systems/pysolarlife/issues/2)) is not used.

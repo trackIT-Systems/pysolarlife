@@ -22,7 +22,7 @@ On a Raspberry Pi Wi-Fi and Bluetooth share one chip and one 2.4 GHz antenna.
 
 ## The device
 
-* **A connected device does not advertise**, so `scan` cannot see it. The daemon lists the connected device anyway, with the signal strength it had at connect (`advertising: false`), and compares with that value when it rescans.
+* **A connected device does not advertise**, so `scan` cannot see it, and neither can any other machine: while one client (for example the daemon on the Pi) is connected, no other client finds the device at all. The daemon lists the connected device anyway, with the signal strength it had at connect (`advertising: false`), and compares with that value when it rescans.
 * **The device silently ignores some writes.** On a controller set to `GEL`, writing `charge_recovery_voltage_for_lithium` was accepted without an error but the value stayed unchanged, while `equalizing_voltage` took effect. The lithium voltages most likely only apply when `battery_type` is `Lithium`. Always read back; `profile load` does, and reports a mismatch with exit code 1.
 * **Changing `battery_type` may reset other voltages** on its own. The read-back shows what the device ended up with.
 * **Protected registers.** `restore_system_default_values`, the `clear_*` switches, `slave_id`, `baud_rate` and `device_password` need `--force`; they are not part of a profile.

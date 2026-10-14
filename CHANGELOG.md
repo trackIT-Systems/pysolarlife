@@ -14,7 +14,7 @@ A rewrite: from a library for one-shot reads to a daemon and a CLI. It breaks wi
 - `solarlife` CLI over a Unix socket: `status`, `cached`, `read` (blocks or raw ranges), `write`, `profile save|load|diff|show|list`, `reconnect`, `rescan`, `scan`, `variables`. Exit codes 0 ok, 1 daemon error, 2 usage error, 3 daemon unreachable.
 - Validated writes (names and values are checked before anything is sent, read-only registers are refused, restore/clear/slave id/baud rate/password need `--force`) with read-back verification.
 - Parameter profiles (YAML files over the twelve controller parameters), four premade 12 V profiles, `docs/parameters.md`.
-- macOS and Windows support (untried with a real controller, tested against fakes in CI): the BLE code only asks bleak, and macOS, which hides MAC addresses, gets the MAC address of a device from its advertisement, so that `ble.address`, `scan` and the MQTT topic mean the same everywhere (see `docs/platforms.md`).
+- macOS and Windows support (macOS tried with a real controller: connect and live reads; Windows only tested against fakes in CI): the BLE code only asks bleak, and macOS, which hides MAC addresses, gets the MAC address of a device from its advertisement, so that `ble.address`, `scan` and the MQTT topic mean the same everywhere (see `docs/platforms.md`).
 - `daemon.socket: tcp://127.0.0.1:port` as a loopback control endpoint (the default on Windows); `--socket` takes it too.
 - Per-platform default paths (config, socket, data), `~` in configured paths, shutdown on Ctrl+Break on Windows, an example config for macOS.
 - Documentation of the protocol, the quirks of the device and the open questions, and the control socket API in `docs/`.

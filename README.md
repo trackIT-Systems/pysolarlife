@@ -31,7 +31,7 @@ pytest
 
 ## Platforms
 
-Linux (tsOS, a Raspberry Pi) is the system it was built and tried on. macOS and Windows should work through bleak (CoreBluetooth, WinRT) and are tested against fakes in CI, but **have not been tried with a real controller**; see [docs/platforms.md](docs/platforms.md) for what differs (paths, the control socket on Windows, device names on macOS). An example config for macOS is [config/solarlife.macos.yml](config/solarlife.macos.yml).
+Linux (tsOS, a Raspberry Pi) is the system it was built and tried on. macOS was tried with a real controller (connect, live reads; no writes) and Windows was not; both work through bleak (CoreBluetooth, WinRT) and are tested against fakes in CI; see [docs/platforms.md](docs/platforms.md) for what differs (paths, the control socket on Windows, device names on macOS). An example config for macOS is [config/solarlife.macos.yml](config/solarlife.macos.yml).
 
 ## Daemon
 
