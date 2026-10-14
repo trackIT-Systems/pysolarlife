@@ -36,8 +36,8 @@ Linux (tsOS, a Raspberry Pi) is the system it was built and tried on. macOS was 
 ## Daemon
 
 ```bash
-sudo cp config/solarlife.yml /boot/firmware/solarlife.yml
-solarlifed                                   # reads /boot/firmware/solarlife.yml
+sudo install -D config/solarlife.yml /etc/solarlife/solarlife.yml
+solarlifed                                   # reads /etc/solarlife/solarlife.yml
 solarlifed --config ./config/solarlife.yml -v
 ```
 

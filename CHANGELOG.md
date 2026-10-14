@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), the versioning follows [Semantic Versioning](https://semver.org/). Releases are made by pushing a tag `vX.Y.Z` (see [docs/releasing.md](docs/releasing.md)).
 
+## [Unreleased]
+
+### Changed
+
+- The default config file on Linux is `/etc/solarlife/solarlife.yml` (was `/boot/firmware/solarlife.yml`). A system that keeps the file elsewhere passes `--config`.
+
 ## [1.0.0] - 2026-10-14
 
 A rewrite: from a library for one-shot reads to a daemon and a CLI. It breaks with the 0.x API in every way (package layout, entry points, dependencies, Python version, output format), hence 1.0.0. The development steps 0.4.0 and 0.5.0 of the rewrite were never released and are part of this release.

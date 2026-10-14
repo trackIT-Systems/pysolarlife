@@ -19,7 +19,7 @@ class Defaults:
 
 
 def default_paths(platform: str | None = None, env: dict[str, str] | None = None, home: Path | None = None) -> Defaults:
-    """Linux (tsOS): /boot/firmware, /var/lib, /run. macOS: ~/Library/Application Support. Windows: %PROGRAMDATA%."""
+    """Linux (tsOS): /etc/solarlife, /var/lib, /run. macOS: ~/Library/Application Support. Windows: %PROGRAMDATA%."""
     platform = platform or sys.platform
     env = os.environ if env is None else env
     if platform.startswith("win"):
@@ -29,7 +29,7 @@ def default_paths(platform: str | None = None, env: dict[str, str] | None = None
         base = (home or Path.home()) / "Library" / "Application Support" / "solarlife"
         return Defaults(base / "solarlife.yml", base, base / "solarlife.sock", base / "data")
     return Defaults(
-        Path("/boot/firmware/solarlife.yml"), Path("/var/lib/solarlife"), Path("/run/solarlife/solarlife.sock"), Path("/data")
+        Path("/etc/solarlife/solarlife.yml"), Path("/var/lib/solarlife"), Path("/run/solarlife/solarlife.sock"), Path("/data")
     )
 
 

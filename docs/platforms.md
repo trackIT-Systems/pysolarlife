@@ -9,7 +9,7 @@
 | Device names (`ble.address`, MQTT topic) | MAC address | MAC address (read from the advertisement) | MAC address |
 | `ble.adapter` | BlueZ adapter (`hci0`) | ignored (warning) | ignored (warning) |
 | Control socket | Unix socket | Unix socket | `tcp://127.0.0.1:47821` |
-| Default paths | `/boot/firmware`, `/run/solarlife`, `/data` | `~/Library/Application Support/solarlife` | `%PROGRAMDATA%\solarlife` |
+| Default paths | `/etc/solarlife`, `/run/solarlife`, `/data` | `~/Library/Application Support/solarlife` | `%PROGRAMDATA%\solarlife` |
 
 An example config for macOS with the paths and notes below is [config/solarlife.macos.yml](../config/solarlife.macos.yml). `~` is expanded in `daemon.socket` and `daemon.csv.path`.
 
