@@ -41,7 +41,7 @@ def test_a_missing_value_is_none_and_an_unknown_one_is_dropped():
 
 
 def test_docs_list_every_column_with_its_unit():
-    text = DOC.read_text()
+    text = DOC.read_text(encoding="utf-8")
     for variables in BLOCK_VARIABLES.values():
         for variable in variables:
             assert f"| `{variable.name}` | {variable.unit} |" in text, variable.name

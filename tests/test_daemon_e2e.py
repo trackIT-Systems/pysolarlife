@@ -126,7 +126,7 @@ def test_outputs_have_the_expected_content():
             await env.wait_connected()
             await until(lambda: len([t for t, _, _ in env.mqtt.published if t.endswith("a4c1386f0e2b/status/cbor")]) >= 2)
             files = {path.parent.name: path for path in env.csv_dir.glob("*/*.csv")}
-            rows = {key: list(csv.DictReader(path.read_text().splitlines(), delimiter=";")) for key, path in files.items()}
+            rows = {key: list(csv.DictReader(path.read_text(encoding="utf-8").splitlines(), delimiter=";")) for key, path in files.items()}
             await env.stop()
             published = list(env.mqtt.published)
             final_state = [(t, p, r) for t, p, r in published if t == "tracker/solarlife/state/json"][-1]

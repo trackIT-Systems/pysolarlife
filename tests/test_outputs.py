@@ -14,6 +14,8 @@ from solarlife.reading import Event, Reading, Value
 
 TZ = timezone(timedelta(hours=2))
 WHEN = datetime(2026, 10, 13, 12, 3, 0, 123000, tzinfo=TZ)
+# How the outputs write WHEN: in the local time zone (the runner's), whole seconds
+LOCAL = WHEN.astimezone().replace(microsecond=0).isoformat()
 MAC = "A4:C1:38:6F:0E:2B"
 
 
@@ -54,11 +56,11 @@ def test_all_formats_carry_the_same_columns_in_the_same_order():
 
 def test_time_has_its_offset_and_whole_seconds_and_cbor_uses_tag_0():
     record = reading_record(reading(), synced=False)
-    assert json.loads(encode_json(record))["time"] == "2026-10-13T12:03:00+02:00"
-    assert encode_csv(record).startswith(b"2026-10-13T12:03:00+02:00;False;A4:C1:38:6F:0E:2B;")
+    assert json.loads(encode_json(record))["time"] == LOCAL
+    assert encode_csv(record).startswith(f"{LOCAL};False;A4:C1:38:6F:0E:2B;".encode())
     raw = encode_cbor(record)
     assert raw[:3] == bytes([0x98, 3 + len(COLUMNS["status"]), 0xC0])  # array header (2 bytes), then tag 0
-    assert cbor2.loads(raw)[0].utcoffset() == timedelta(hours=2)
+    assert cbor2.loads(raw)[0].utcoffset() == WHEN.astimezone().utcoffset()
 
 
 # --- MQTT
@@ -126,7 +128,7 @@ def test_mqtt_events_in_three_formats_state_retained_as_map_and_will_offline():
     assert retained["tracker/solarlife/state/json"] is True and "tracker/solarlife/state/csv" not in retained
     assert retained["tracker/solarlife/events/cbor"] is False
     event = json.loads({t: p for t, p, _ in client.published}["tracker/solarlife/events/json"])
-    assert event == {"time": "2026-10-13T12:03:00+02:00", "synced": True, "device": MAC, "event": "connected", "detail": "rssi=-67"}
+    assert event == {"time": LOCAL, "synced": True, "device": MAC, "event": "connected", "detail": "rssi=-67"}
 
 
 def test_mqtt_format_switches():
@@ -145,9 +147,9 @@ def test_csv_one_file_per_block_and_day_with_one_header(tmp_path):
     out.emit_reading(reading(3.0, when=WHEN + timedelta(days=1)))
     out.emit_reading(reading(block="parameters"))
     base = tmp_path / "tracker" / "solarlife"
-    day1 = (base / "status" / "tracker_2026-10-13_solarlife-status.csv").read_text().splitlines()
+    day1 = (base / "status" / "tracker_2026-10-13_solarlife-status.csv").read_text(encoding="utf-8").splitlines()
     assert day1[0] == ";".join(["time", "synced", "device", *COLUMNS["status"]])
-    assert len(day1) == 3 and day1[1].startswith("2026-10-13T12:03:00+02:00;True;A4:C1:38:6F:0E:2B;")
+    assert len(day1) == 3 and day1[1].startswith(f"{LOCAL};True;A4:C1:38:6F:0E:2B;")
     assert (base / "status" / "tracker_2026-10-14_solarlife-status.csv").exists()
     assert (base / "parameters" / "tracker_2026-10-13_solarlife-parameters.csv").exists()
 
@@ -157,8 +159,8 @@ def test_csv_logs_only_the_connection_events(tmp_path):
     out.emit_event(Event(WHEN, "connected", MAC, {"rssi": -67, "attempts": 5}))
     out.emit_event(Event(WHEN, "connect_failed", MAC, {"error": "timeout"}))
     out.emit_state({"state": "connected"})
-    lines = (tmp_path / "tracker/solarlife/events/tracker_2026-10-13_solarlife-events.csv").read_text().splitlines()
-    assert lines == ["time;synced;device;event;detail", f"2026-10-13T12:03:00+02:00;True;{MAC};connected;rssi=-67 attempts=5"]
+    lines = (tmp_path / "tracker/solarlife/events/tracker_2026-10-13_solarlife-events.csv").read_text(encoding="utf-8").splitlines()
+    assert lines == ["time;synced;device;event;detail", f"{LOCAL};True;{MAC};connected;rssi=-67 attempts=5"]
 
 
 def test_outputs_isolates_failing_sinks():
