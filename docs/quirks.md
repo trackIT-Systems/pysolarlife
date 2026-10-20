@@ -35,5 +35,5 @@ On a Raspberry Pi Wi-Fi and Bluetooth share one chip and one 2.4 GHz antenna.
 * **A reconnect request from the CLI skips the backoff**, one from a failed read does not.
 * **Reads and writes share the one connection.** A request that waits more than 30 s for another one fails with `busy`.
 * **The cache is dropped when the daemon switches to another device**, so values of two devices are never mixed.
-* **MQTT topics use the MAC address** without colons, lower case (`{host}/solarlife/a4c1386f0e2b/json`). On macOS the MAC address comes from the manufacturer data of the advertisement ([advertisements.md](advertisements.md)).
-* **The CSV file name** has no colons (`<host>_2026-10-14T091233-solarlife.csv`) because Windows does not allow them.
+* **MQTT topics use the MAC address** without colons, lower case (`{host}/solarlife/a4c1386f0e2b/status/json`). On macOS the MAC address comes from the manufacturer data of the advertisement ([advertisements.md](advertisements.md)).
+* **CSV file names** have no colons (`<host>_2026-10-14_solarlife-status.csv`) because Windows does not allow them.

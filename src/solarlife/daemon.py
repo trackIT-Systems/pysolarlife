@@ -19,7 +19,8 @@ from solarlife.config import DEFAULT_CONFIG_PATH, AppConfig, load_config
 from solarlife.errors import ConfigError, NotConnectedError, SolarlifeError
 from solarlife.manager import ConnectionManager, ConnState
 from solarlife.outputs import Output, Outputs
-from solarlife.outputs.csv import CsvOutput, csv_session_path
+from solarlife.clock import Clock
+from solarlife.outputs.csv import CsvOutput
 from solarlife.outputs.mqtt import MqttOutput
 from solarlife.poller import Poller
 from solarlife.reading import Event, Value, local_iso, utc_iso
@@ -34,12 +35,14 @@ RESCAN_GRACE_S = 30.0
 
 def build_outputs(config: AppConfig, hostname: str | None = None) -> Outputs:
     sinks: list[Output] = []
+    # One clock for both outputs, so they agree on when the clock got synced
+    csv_output = None
     if config.daemon.csv.enabled:
-        path = csv_session_path(config.daemon.csv.path, hostname)
-        log.info("csv file %s", path)
-        sinks.append(CsvOutput(path))
+        csv_output = CsvOutput(config.daemon.csv.path, hostname)
+        log.info("csv files in %s", csv_output.dir)
+        sinks.append(csv_output)
     if config.daemon.mqtt.enabled:
-        sinks.append(MqttOutput(config.daemon.mqtt, hostname))
+        sinks.append(MqttOutput(config.daemon.mqtt, hostname, clock=csv_output.clock if csv_output else Clock()))
     if not sinks:
         log.warning("no outputs enabled; readings are only available through the CLI")
     return Outputs(sinks)

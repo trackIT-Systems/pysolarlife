@@ -12,7 +12,7 @@ from pathlib import Path
 import cbor2
 import pytest
 
-from fakes import FakeBackend, FakeDevice, FakeMqtt, free_port
+from fakes import FakeBackend, FakeClock, FakeDevice, FakeMqtt, free_port
 from solarlife import ipc
 from solarlife.config import AppConfig, BleConfig, CsvConfig, DaemonConfig, MqttConfig, PollingConfig
 from solarlife.daemon import Daemon
@@ -33,7 +33,7 @@ class Env:
         self.dir = Path(tempfile.mkdtemp(dir="/tmp" if os.path.isdir("/tmp") else None, prefix="sl-"))
         self.tcp = tcp or sys.platform.startswith("win")  # Windows has no usable Unix sockets
         self.sock = f"tcp://127.0.0.1:{free_port()}" if self.tcp else self.dir / "run" / "s.sock"
-        self.csv_path = self.dir / "data" / "out.csv"
+        self.csv_dir = self.dir / "data" / "tracker" / "solarlife"
         self.mqtt = FakeMqtt()
         self.backend = FakeBackend()
         self.backend.scan_results = scan_results
@@ -45,9 +45,13 @@ class Env:
         self.config = AppConfig(
             ble=BleConfig(**ble_cfg),
             polling=PollingConfig(status_interval_s=0.1, parameters_interval_s=3600),
-            daemon=DaemonConfig(socket=self.sock, csv=CsvConfig(path=self.dir), mqtt=MqttConfig()),
+            daemon=DaemonConfig(socket=self.sock, csv=CsvConfig(path=self.dir), mqtt=MqttConfig(publish_interval_s=0)),
         )
-        outputs = Outputs([CsvOutput(self.csv_path), MqttOutput(self.config.daemon.mqtt, hostname="tracker", client=self.mqtt)])
+        clock = FakeClock(synced=True)
+        outputs = Outputs([
+            CsvOutput(self.dir / "data", hostname="tracker", clock=clock),
+            MqttOutput(self.config.daemon.mqtt, hostname="tracker", client=self.mqtt, clock=clock),
+        ])
         self.daemon = Daemon(self.config, backend=self.backend, outputs=outputs, hostname="tracker")
         self.task = None
         self.exit_code = None
@@ -97,7 +101,7 @@ def test_connects_polls_and_reports_to_csv_and_mqtt_then_stops_cleanly():
     async def go():
         async with Env([{A: -60}]) as env:
             await env.wait_connected()
-            await until(lambda: len([t for t, _, _ in env.mqtt.published if t.endswith("a4c1386f0e2b/json")]) >= 3)
+            await until(lambda: len([t for t, _, _ in env.mqtt.published if t.endswith("a4c1386f0e2b/status/json")]) >= 3)
 
             status = await env.call("status")
             assert status["state"] == "connected" and status["device"]["address"] == A
@@ -120,22 +124,23 @@ def test_outputs_have_the_expected_content():
         env = Env([{A: -60}])
         async with env:
             await env.wait_connected()
-            await until(lambda: len([t for t, _, _ in env.mqtt.published if t.endswith("a4c1386f0e2b/cbor")]) >= 2)
-            published = list(env.mqtt.published)
-            with env.csv_path.open() as handle:
-                rows = list(csv.DictReader(handle))
+            await until(lambda: len([t for t, _, _ in env.mqtt.published if t.endswith("a4c1386f0e2b/status/cbor")]) >= 2)
+            files = {path.parent.name: path for path in env.csv_dir.glob("*/*.csv")}
+            rows = {key: list(csv.DictReader(path.read_text().splitlines(), delimiter=";")) for key, path in files.items()}
             await env.stop()
             published = list(env.mqtt.published)
             final_state = [(t, p, r) for t, p, r in published if t == "tracker/solarlife/state/json"][-1]
             assert json.loads(final_state[1])["state"] == "offline" and final_state[2] is True
             kinds = {json.loads(p)["event"] for t, p, _ in published if t == "tracker/solarlife/events/json"}
             assert {"daemon_started", "connected", "scan_completed", "daemon_stopped"} <= kinds
-            reading_json = [json.loads(p) for t, p, _ in published if t == "tracker/solarlife/a4c1386f0e2b/json"]
-            reading_cbor = [cbor2.loads(p) for t, p, _ in published if t == "tracker/solarlife/a4c1386f0e2b/cbor"]
-            assert reading_json == reading_cbor and "Current battery voltage level (V)" in reading_json[0]
-            assert {r["block"] for r in rows} >= {"status", "parameters", "event"}
-            assert any(r["key"] == "connected" and r["block"] == "event" for r in rows)
-            assert all(r["device"] == A for r in rows if r["block"] != "event")
+            reading_json = [json.loads(p) for t, p, _ in published if t == "tracker/solarlife/a4c1386f0e2b/status/json"]
+            reading_cbor = [cbor2.loads(p) for t, p, _ in published if t == "tracker/solarlife/a4c1386f0e2b/status/cbor"]
+            assert [list(r.values())[1:] for r in reading_json] == [r[1:] for r in reading_cbor]
+            assert reading_json[0]["battery_voltage_level"] == 24.0 and reading_json[0]["device"] == A
+            assert any(t == "tracker/solarlife/a4c1386f0e2b/parameters/csv" for t, _, _ in published)
+            assert set(rows) == {"status", "parameters", "events"}
+            assert any(r["event"] == "connected" for r in rows["events"])
+            assert all(r["device"] == A and r["synced"] == "True" for r in rows["status"])
             states = [json.loads(p)["state"] for t, p, _ in published if t == "tracker/solarlife/state/json"]
             assert states[0] == "scanning" and "connected" in states and states[-1] == "offline"
 

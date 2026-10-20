@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Changed
 
+- **Output formats.** Every reading and event goes out over MQTT as CSV, JSON and CBOR (`mqtt.csv`, `mqtt.json`, `mqtt.cbor`). All three carry the same fixed columns: `time` (with UTC offset; CBOR tag 0), `synced`, `device`, then the block's values under their names. The display texts with units (`"Battery voltage (V)"`) are gone from all outputs; units are documented per column in [docs/outputs.md](docs/outputs.md). CBOR is a list in column order with each number in its smallest exact form: a `status` reading is about 200 bytes instead of 1500. Readings are published on `{host}/solarlife/{mac}/{block}/{fmt}` (the block decides the columns), events on `{host}/solarlife/events/{fmt}`; the retained state is unchanged.
+- **MQTT rate limit.** `mqtt.publish_interval_s` (default 300 s) allows at most one reading per device and block in that time, always the newest; `0` publishes every reading. Events, state and files are not limited.
+- **CSV files.** One file per block and calendar day, `<csv.path>/<host>/solarlife/<block>/<host>_<YYYY-MM-DD>_solarlife-<block>.csv`, with the same columns as MQTT; events in `.../events/`. This replaces one long-format file per daemon start.
+- **Clock.** Readings taken before the clock is synced (the kernel's `adjtimex` state) are published over MQTT with `synced` false and held in a spool for the files. At the sync they are re-timed from the time since boot and written to the right day. A spool from a boot that never synced becomes `<host>_unsynced_<boot_id>_solarlife-<block>.csv`.
 - The default config file on Linux is `/etc/solarlife/solarlife.yml` (was `/boot/firmware/solarlife.yml`). A system that keeps the file elsewhere passes `--config`.
 
 ## [1.0.0] - 2026-10-14

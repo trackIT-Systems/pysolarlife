@@ -45,23 +45,15 @@ See [config/solarlife.yml](config/solarlife.yml) for all options (the default co
 
 ### Output
 
-**CSV**, one file per daemon start: `<csv.path>/<host>/solarlife/<host>_<UTC timestamp>-solarlife.csv`, long format:
+Every block read (`status` once a minute, `parameters` once an hour) and every connection event go out over **MQTT** as CSV, JSON and CBOR, on `{host}/solarlife/{mac}/{block}/{csv,json,cbor}`, and into **CSV files**, one per block and day: `<csv.path>/<host>/solarlife/<block>/<host>_<date>_solarlife-<block>.csv`.
 
-```
-ts,device,block,key,value,unit
-2026-10-13T08:17:29.077Z,10:23:81:1E:97:4C,status,battery_voltage_level,12.0,V
-2026-10-13T08:17:28.781Z,10:23:81:1E:97:4C,event,connected,rssi=-62 attempts=3 name=SolarLife,
-```
+- **Columns:** all formats carry the same ones: `time` (with UTC offset), `synced`, `device`, then the block's values under their names (`battery_voltage`, `solar_panel_power`, ...).
+- **CBOR** is a list in column order, about 200 bytes per `status` reading, for cellular links.
+- **Rate limit:** MQTT sends at most one reading per device and block every `mqtt.publish_interval_s` (300 s), always the newest. The files get every reading.
+- **Clock:** readings taken before the clock is synced are re-timed before they reach the files.
+- **State:** `{host}/solarlife/state/{json,cbor}` is retained, with `offline` as the last will.
 
-`block=event` rows record `connected`, `disconnected` and `device_switched`.
-
-**MQTT**, every message as JSON and as CBOR (same content; switch either off with `mqtt.json` / `mqtt.cbor`):
-
-| Topic | Content |
-|---|---|
-| `{host}/solarlife/{mac}/json` and `/cbor` | One message per block read: `{"_time": ..., "Current battery voltage level (V)": 12.0, ...}`. `{mac}` is the address without colons, lowercase |
-| `{host}/solarlife/state/json` and `/cbor` | Connection state, retained. The will message is `{"state": "offline"}` |
-| `{host}/solarlife/events/json` and `/cbor` | `connected`, `connect_failed`, `disconnected`, `device_switched`, `scan_completed`, `read_failed`, `daemon_started`, `daemon_stopped` |
+Topics, columns with units, examples and the clock handling: [docs/outputs.md](docs/outputs.md).
 
 ## CLI
 
