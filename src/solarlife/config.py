@@ -64,7 +64,7 @@ class MqttConfig:
 class DaemonConfig:
     socket: Path | str = DEFAULT_SOCKET_PATH
     socket_mode: int = 0o660
-    log_level: str = "INFO"
+    log_level: str = "WARNING"
     csv: CsvConfig = field(default_factory=CsvConfig)
     mqtt: MqttConfig = field(default_factory=MqttConfig)
 

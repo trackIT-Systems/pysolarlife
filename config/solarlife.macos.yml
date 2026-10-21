@@ -37,7 +37,7 @@ polling:
 daemon:
   socket: ~/Library/Application Support/solarlife/solarlife.sock
   socket_mode: "0600"            # only you
-  log_level: INFO
+  log_level: WARNING
   csv:
     enabled: true
     path: ~/Library/Application Support/solarlife/data

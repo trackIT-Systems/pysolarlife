@@ -11,6 +11,7 @@ All notable changes to this project are documented here. The format follows [Kee
 - **CSV files.** One file per block and calendar day, `<csv.path>/<host>/solarlife/<block>/<host>_<YYYY-MM-DD>_solarlife-<block>.csv`, with the same columns as MQTT; events in `.../events/`. This replaces one long-format file per daemon start.
 - **Clock.** Readings taken before the clock is synced (the kernel's `adjtimex` state) are published over MQTT with `synced` false and held in a spool for the files. At the sync they are re-timed from the time since boot and written to the right day. A spool from a boot that never synced becomes `<host>_unsynced_<boot_id>_solarlife-<block>.csv`.
 - The default config file on Linux is `/etc/solarlife/solarlife.yml` (was `/boot/firmware/solarlife.yml`). A system that keeps the file elsewhere passes `--config`.
+- **Default log level WARNING.** `daemon.log_level` defaults to `WARNING` (was `INFO`), as do the shipped configs, following tsOS's logging convention: a working station logs nothing in normal operation. `-v` still turns on DEBUG.
 - **Logging.** Under systemd `solarlifed` logs to the journal directly, each entry with its syslog priority, `SYSLOG_IDENTIFIER` `solarlifed` and `CODE_FILE`/`CODE_LINE`/`CODE_FUNC`; the message is `<logger>: <message>`. Before, every line went through stderr and was stored as `info`. Elsewhere it still logs to stderr.
 
 ## [1.0.0] - 2026-10-14
