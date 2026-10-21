@@ -17,6 +17,7 @@ from solarlife import __version__
 from solarlife.ble import BleBackend
 from solarlife.config import DEFAULT_CONFIG_PATH, AppConfig, load_config
 from solarlife.errors import ConfigError, NotConnectedError, SolarlifeError
+from solarlife.journal import log_handler
 from solarlife.manager import ConnectionManager, ConnState
 from solarlife.outputs import Output, Outputs
 from solarlife.clock import Clock
@@ -312,7 +313,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     level = logging.DEBUG if args.verbose else getattr(logging, config.daemon.log_level)
-    logging.basicConfig(level=level, format="%(levelname)s %(name)s: %(message)s", stream=sys.stderr)
+    logging.basicConfig(level=level, handlers=[log_handler("solarlifed")])
     try:
         return asyncio.run(Daemon(config).run())
     except (SolarlifeError, OSError) as exc:
