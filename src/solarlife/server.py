@@ -66,7 +66,7 @@ class ControlServer:
                 self._server = await asyncio.start_server(self._client, self.endpoint.host, self.endpoint.port, limit=ipc.MAX_REQUEST_BYTES)
             except OSError as exc:
                 raise SolarlifeError(f"cannot listen on {self.endpoint}: {exc}") from None
-            log.info("control socket %s", self.endpoint)
+            log.info("Listening on the control socket %s", self.endpoint)
             return
         if not hasattr(asyncio, "start_unix_server"):
             raise SolarlifeError("this system has no Unix sockets: set daemon.socket to tcp://127.0.0.1:port")
@@ -82,7 +82,7 @@ class ControlServer:
             os.chmod(self.path, self.mode)
         except OSError as exc:
             raise SolarlifeError(f"cannot create control socket {self.path}: {exc}") from None
-        log.info("control socket %s", self.path)
+        log.info("Listening on the control socket %s", self.path)
 
     async def stop(self) -> None:
         if self._server is not None:
@@ -156,5 +156,5 @@ class ControlServer:
         except Exception as exc:
             kind = error_type(exc)
             if kind == "internal":
-                log.exception("command failed")
+                log.exception("Command %s failed", cmd)
             return {"id": request_id, "ok": False, "error": {"type": kind, "message": str(exc) or type(exc).__name__}}

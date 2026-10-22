@@ -24,6 +24,9 @@ class Outputs:
 
     def __init__(self, sinks: Iterable[Output] = ()) -> None:
         self.sinks = list(sinks)
+        # The last error logged per sink and method: a sink that fails on every reading is
+        # logged when it starts failing or the error changes, the repeats at DEBUG.
+        self._errors: dict[str, str] = {}
 
     def emit_reading(self, reading: Reading) -> None:
         for sink in self.sinks:
@@ -41,9 +44,17 @@ class Outputs:
         for sink in self.sinks:
             self._call(sink, "close")
 
-    @staticmethod
-    def _call(sink: Output, method: str, *args: Any) -> None:
+    def _call(self, sink: Output, method: str, *args: Any) -> None:
+        key = f"{type(sink).__name__}.{method}"
         try:
             getattr(sink, method)(*args)
-        except Exception:
-            log.exception("output %s failed in %s", type(sink).__name__, method)
+        except Exception as exc:
+            message = f"{type(exc).__name__}: {exc}"
+            if self._errors.get(key) != message:
+                log.exception("Output %s failed in %s: %s", type(sink).__name__, method, message)
+            else:
+                log.debug("Output %s failed again in %s: %s", type(sink).__name__, method, message)
+            self._errors[key] = message
+            return
+        if self._errors.pop(key, None) is not None:
+            log.info("Output %s works again in %s", type(sink).__name__, method)

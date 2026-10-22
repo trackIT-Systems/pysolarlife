@@ -7,7 +7,6 @@ import asyncio
 import logging
 import signal
 import socket
-import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -29,7 +28,7 @@ from solarlife.registers import BLOCKS, Block, blocks_touched, build_write, plan
 from solarlife.server import BadRequest, ControlServer
 from solarlife.state import Cache
 
-log = logging.getLogger("solarlifed")
+log = logging.getLogger(__name__)
 
 RESCAN_GRACE_S = 30.0
 
@@ -40,12 +39,12 @@ def build_outputs(config: AppConfig, hostname: str | None = None) -> Outputs:
     csv_output = None
     if config.daemon.csv.enabled:
         csv_output = CsvOutput(config.daemon.csv.path, hostname)
-        log.info("csv files in %s", csv_output.dir)
+        log.info("Writing CSV files to %s", csv_output.dir)
         sinks.append(csv_output)
     if config.daemon.mqtt.enabled:
         sinks.append(MqttOutput(config.daemon.mqtt, hostname, clock=csv_output.clock if csv_output else Clock()))
     if not sinks:
-        log.warning("no outputs enabled; readings are only available through the CLI")
+        log.warning("No outputs are enabled, so readings are only available through the CLI")
     return Outputs(sinks)
 
 
@@ -124,7 +123,7 @@ class Daemon:
         try:
             done, _ = await asyncio.wait({manager_task, poller_task, stopper}, return_when=asyncio.FIRST_COMPLETED)
             for task in done - {stopper}:
-                log.error("task %s ended unexpectedly: %r", task.get_name(), task.exception() if not task.cancelled() else "cancelled")
+                log.error("Task %s ended unexpectedly: %r", task.get_name(), task.exception() if not task.cancelled() else "cancelled")
                 exit_code = 1
         finally:
             await self._shutdown(manager_task, poller_task, stopper)
@@ -142,7 +141,7 @@ class Daemon:
                 signal.signal(sig, lambda *_: loop.call_soon_threadsafe(self.stop_event.set))
 
     async def _shutdown(self, manager_task: asyncio.Task, poller_task: asyncio.Task, stopper: asyncio.Task) -> None:
-        log.info("shutting down")
+        log.info("Shutting down")
         stopper.cancel()
         await self.server.stop()
         poller_task.cancel()
@@ -151,7 +150,7 @@ class Daemon:
         self._on_event(Event(datetime.now().astimezone(), "daemon_stopped"))
         self.outputs.emit_state({**self.state_payload(), "state": "offline", "device": None, "rssi": None})
         self.outputs.close()
-        log.info("stopped")
+        log.info("Stopped")
 
     # -- commands -----------------------------------------------------------
 
@@ -255,7 +254,7 @@ class Daemon:
         results = build_write(values, force=bool(args.get("force")))
         for group in plan_writes(results):
             await session.write(group)
-            log.info("wrote %s", ", ".join(f"{r.name}={r.value}" for r in group))
+            log.info("Wrote %s", ", ".join(f"{r.name}={r.value}" for r in group))
         readback: dict[str, Any] = {}
         errors: dict[str, str] = {}
         for block in blocks_touched(results):
@@ -307,17 +306,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--config", type=Path, default=None, help=f"config file (default: {DEFAULT_CONFIG_PATH})")
     parser.add_argument("-v", "--verbose", action="count", default=0, help="more log output (-v: DEBUG)")
     args = parser.parse_args(argv)
+    # The level is in the config, but an unreadable config must be logged too: WARNING until then
+    logging.basicConfig(level=logging.WARNING, handlers=[log_handler("solarlifed")])
     try:
         config = load_config(args.config)
     except ConfigError as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        log.critical("Cannot load the configuration: %s", exc)
         return 1
-    level = logging.DEBUG if args.verbose else getattr(logging, config.daemon.log_level)
-    logging.basicConfig(level=level, handlers=[log_handler("solarlifed")])
+    logging.getLogger().setLevel(logging.DEBUG if args.verbose else getattr(logging, config.daemon.log_level))
     try:
         return asyncio.run(Daemon(config).run())
     except (SolarlifeError, OSError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        log.critical("Cannot continue: %s", exc)
         return 1
 
 

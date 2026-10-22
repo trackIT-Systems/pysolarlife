@@ -38,5 +38,5 @@ def row(reading: Reading) -> tuple[Any, ...]:
     for name in values.keys() - set(columns):
         if (reading.block, name) not in _dropped:
             _dropped.add((reading.block, name))
-            log.debug("value %s has no column in block %s, not published", name, reading.block)
+            log.debug("Value %s has no column in block %s and is not published", name, reading.block)
     return tuple(values.get(column) for column in columns)

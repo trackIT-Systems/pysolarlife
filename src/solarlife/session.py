@@ -126,7 +126,7 @@ class DeviceSession:
                 last = exc
             finally:
                 self._pending = None
-            log.debug("request failed, %s", last)
+            log.debug("Request failed: %s", last)
         assert last is not None
         raise last
 
@@ -154,7 +154,7 @@ class DeviceSession:
     def _drop(self, chunk: bytes, why: str) -> None:
         self.unsolicited += 1
         self.last_unsolicited_hex = chunk.hex()
-        log.debug("dropping notification (%s): %s", why, chunk.hex())
+        log.debug("Dropping a notification (%s): %s", why, chunk.hex())
 
     def _complete(self, pending: _Pending) -> ResultContainer | None:
         """Return the parsed response once the buffer holds a full frame, else None."""
@@ -178,7 +178,7 @@ class DeviceSession:
 
         frame = bytes(buf[:expected])
         if len(buf) > expected:
-            log.debug("ignoring %d extra byte(s) after response: %s", len(buf) - expected, bytes(buf[expected:]).hex())
+            log.debug("Ignoring %d extra byte(s) after the response: %s", len(buf) - expected, bytes(buf[expected:]).hex())
         try:
             results = self.protocol.parse(pending.start_address, frame)
         except Exception as exc:

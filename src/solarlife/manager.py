@@ -150,6 +150,9 @@ class ConnectionManager:
         self.next_rescan_mono: float | None = None  # for `status`
         self._last_address: str | None = None
         self._generation = 0  # callbacks of links we already dropped must not wake us
+        # The last error logged per kind ("connect:...", "scan"): a failure that repeats on every
+        # retry is logged when it starts or changes, the repeats at DEBUG.
+        self._logged_errors: dict[str, str] = {}
 
     # -- requests from the outside -----------------------------------------
 
@@ -269,7 +272,9 @@ class ConnectionManager:
         if not_found:
             # Our handle was stale, not a radio problem: no backoff, no failure count.
             self._next_backoff_s = None
-            log.info("connect to %s: BlueZ no longer knows the device, scanning again", adv.address)
+            self._log_failure(
+                "connect:stale", logging.INFO, "BlueZ no longer knows %s, scanning again before connecting", adv.address
+            )
             self._event("connect_failed", adv.address, attempt=self.stats.connect_attempts, error=message, retry_in_s=0)
             return
         failures = self._failures[adv.address] = self._failures.get(adv.address, 0) + 1
@@ -277,9 +282,15 @@ class ConnectionManager:
         delay = self._next_backoff_s = self._backoff.next(floor)
         self.stats.backoff_s = delay
         if in_progress:
-            log.warning("connect to %s: BlueZ is busy (another client scanning or connecting?)", adv.address)
+            self._log_failure(
+                "connect:busy",
+                logging.WARNING,
+                "Cannot connect to %s because BlueZ is busy (another client scanning or connecting?)",
+                adv.address,
+            )
         else:
-            log.info("connect to %s failed (%d): %s", adv.address, failures, message)
+            self._log_failure("connect:error", logging.INFO, "Cannot connect to %s: %s", adv.address, message)
+        log.debug("Connecting to %s failed %d time(s) in a row, retrying in %.1f s", adv.address, failures, delay)
         if failures >= self.cfg.max_connect_failures:
             # Probably unreachable from here: select again, with a penalty for this device.
             self._retry_address = None
@@ -300,6 +311,8 @@ class ConnectionManager:
         self.stats.connects += 1
         self.stats.backoff_s = None
         self.connected.set()
+        self._logged_errors = {k: v for k, v in self._logged_errors.items() if not k.startswith("connect:")}
+        log.info("Connected to %s (RSSI %d dBm)", adv.address, round(adv.rssi))
         self._set_state(ConnState.CONNECTED)
         self._event("connected", adv.address, rssi=round(adv.rssi), attempts=self.stats.connect_attempts, name=adv.name)
 
@@ -360,7 +373,12 @@ class ConnectionManager:
         self.connected.clear()
         self.connected_since = None
         self.stats.disconnects += 1
-        self._event("disconnected", device.address if device else None, reason=reason, up_s=round(up_s))
+        address = device.address if device else None
+        if reason == "remote":
+            log.info("Lost the connection to %s after %d s", address, round(up_s))
+        else:
+            log.info("Disconnected from %s after %d s (%s)", address, round(up_s), reason)
+        self._event("disconnected", address, reason=reason, up_s=round(up_s))
         # Whatever the reason, the old advertisement is stale by the time we connect again. Unless
         # we are switching away, the same device is the one we want back.
         if reason != "switch":
@@ -389,9 +407,11 @@ class ConnectionManager:
                     waiter.set_result({})
             raise
         except Exception as exc:
-            log.warning("scan failed: %s", exc)
+            self._log_failure("scan", logging.WARNING, "Scanning failed: %s", f"{type(exc).__name__}: {exc}")
             self.stats.last_error = f"scan: {exc}"
         else:
+            if self._logged_errors.pop("scan", None) is not None:
+                log.info("Scanning works again")
             if until_address is None:  # an early-ended scan is incomplete, do not report it as a survey
                 self.scan_results = dict(results)
                 self.last_scan_at = datetime.now().astimezone()
@@ -451,7 +471,7 @@ class ConnectionManager:
         try:
             await asyncio.wait_for(link.disconnect(), DISCONNECT_TIMEOUT_S)
         except Exception as exc:
-            log.debug("disconnect: %s", exc)
+            log.debug("Cannot disconnect: %s", exc)
 
     async def _teardown(self) -> None:
         session = self.session
@@ -472,15 +492,21 @@ class ConnectionManager:
         if state is self.state:
             return
         self.state = state
-        log.info("state: %s", state.value)
+        log.debug("Connection state is now %s", state.value)
         if self._on_state is not None:
             try:
                 self._on_state(state)
             except Exception:
-                log.exception("state callback failed")
+                log.exception("State callback failed for %s", state.value)
 
     def _event(self, kind: str, device: str | None, **data: Any) -> None:
         try:
             self._emit_event(Event(datetime.now().astimezone(), kind, device, data))
         except Exception:
-            log.exception("event callback failed")
+            log.exception("Event callback failed for %s", kind)
+
+    def _log_failure(self, kind: str, level: int, msg: str, *args: Any) -> None:
+        """Log a failure at ``level`` when it starts or its text changes, a repeat at DEBUG."""
+        text = msg % args
+        log.log(level if self._logged_errors.get(kind) != text else logging.DEBUG, msg, *args)
+        self._logged_errors[kind] = text

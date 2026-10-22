@@ -49,6 +49,9 @@ class Poller:
         self._intervals = {STATUS.name: cfg.status_interval_s, PARAMETERS.name: cfg.parameters_interval_s}
         # Failed reads in a row, over all blocks. Any successful read means the link works.
         self.consecutive_failures = 0
+        # The last error logged per block, so that a read failing on every poll is logged once
+        self._read_errors: dict[str, str] = {}
+        self._reconnect_logged = False
 
     async def read(self, block: Block) -> Reading:
         """Read one block now (also used for live reads from the CLI).
@@ -67,14 +70,34 @@ class Poller:
         except SolarlifeError as exc:
             self.cache.fail(block.name, str(exc))
             self.consecutive_failures += 1
-            log.warning("reading %s failed: %s", block.name, exc)
+            self._read_failed(block, device.address, exc)
             self._on_event(Event(datetime.now().astimezone(), "read_failed", device.address, {"block": block.name, "error": str(exc)}))
             raise
         reading = Reading.from_results(device.address, block.name, datetime.now().astimezone(), results)
         self.consecutive_failures = 0
+        self._read_succeeded(block, device.address)
         self.cache.update(reading)
         self._on_reading(reading)
         return reading
+
+    def _read_failed(self, block: Block, address: str, exc: Exception) -> None:
+        """Log a failed read when it starts or its kind of error changes, the repeats at DEBUG.
+
+        The kind is the exception type: a timeout's text names the bytes received
+        so far, which differ from poll to poll.
+        """
+        kind = type(exc).__name__
+        if self._read_errors.get(block.name) != kind:
+            log.warning("Cannot read %s from %s: %s: %s", block.name, address, kind, exc)
+        else:
+            log.debug("Still cannot read %s from %s: %s: %s", block.name, address, kind, exc)
+        self._read_errors[block.name] = kind
+
+    def _read_succeeded(self, block: Block, address: str) -> None:
+        if self._read_errors.pop(block.name, None) is not None:
+            log.info("Reading %s from %s works again", block.name, address)
+        if not self._read_errors:
+            self._reconnect_logged = False
 
     async def run(self) -> None:
         while True:
@@ -103,7 +126,11 @@ class Poller:
                     except SolarlifeError:
                         pass
                     if self.consecutive_failures >= self.cfg.reconnect_after_failures:
-                        log.warning("%d failed reads in a row, reconnecting", self.consecutive_failures)
+                        if not self._reconnect_logged:
+                            log.warning("Reconnecting after %d failed reads in a row", self.consecutive_failures)
+                            self._reconnect_logged = True
+                        else:
+                            log.debug("Reconnecting after %d failed reads in a row", self.consecutive_failures)
                         self.manager.request_reconnect("read_failures")
                         reconnecting = True
                         break

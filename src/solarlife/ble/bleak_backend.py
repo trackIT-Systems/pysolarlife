@@ -112,7 +112,7 @@ class BleakBackend:
             return {}
         if not sys.platform.startswith("linux"):
             if not self._warned_adapter:
-                log.warning("ble.adapter is only used with BlueZ (Linux); ignored")
+                log.warning("Ignoring ble.adapter, which is only used with BlueZ (Linux)")
                 self._warned_adapter = True
             return {}
         return {"adapter": self._adapter}
@@ -145,7 +145,7 @@ class BleakBackend:
             try:
                 await asyncio.wait_for(scanner.stop(), SCANNER_STOP_TIMEOUT_S)
             except Exception as exc:
-                log.warning("stopping the scanner failed: %s", exc)
+                log.warning("Cannot stop the scanner: %s", exc)
 
         results = {}
         for address, entry in seen.items():
@@ -184,4 +184,4 @@ class BleakBackend:
         try:
             await asyncio.wait_for(client.disconnect(), DISCONNECT_TIMEOUT_S)
         except BaseException as exc:  # best effort, also when cancelled again
-            log.debug("cleanup disconnect: %r", exc)
+            log.debug("Cannot disconnect while cleaning up: %r", exc)

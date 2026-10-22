@@ -292,11 +292,17 @@ def test_the_daemon_exits_with_an_error_if_a_core_task_dies():
     run(go())
 
 
-def test_main_reports_startup_problems_without_a_traceback(tmp_path, capsys, monkeypatch):
+def test_main_reports_startup_problems_without_a_traceback(tmp_path, caplog, monkeypatch):
+    import logging
+
     from solarlife import daemon
 
+    root = logging.getLogger()
+    monkeypatch.setattr(root, "level", root.level)  # main() sets the configured level
     assert daemon.main(["--config", str(tmp_path / "missing.yml")]) == 1
-    assert "not found" in capsys.readouterr().err
+    [record] = [r for r in caplog.records if r.name == "solarlife.daemon"]
+    assert record.levelno == logging.CRITICAL and "not found" in record.getMessage() and record.exc_info is None
+    caplog.clear()
 
     blocked = tmp_path / "file"
     blocked.write_text("x")  # a file where the csv directory should be created
@@ -304,7 +310,9 @@ def test_main_reports_startup_problems_without_a_traceback(tmp_path, capsys, mon
     config.write_text(f"daemon:\n  socket: tcp://127.0.0.1:{free_port()}\n  csv: {{path: {blocked}}}\n  mqtt: {{enabled: false}}\n")
     monkeypatch.setattr("solarlife.ble.bleak_backend.BleakBackend", lambda adapter=None: FakeBackend())
     assert daemon.main(["--config", str(config)]) == 1
-    assert "error:" in capsys.readouterr().err
+    [record] = [r for r in caplog.records if r.levelno == logging.CRITICAL]
+    assert record.name == "solarlife.daemon" and record.getMessage().startswith("Cannot continue: ")
+    assert record.exc_info is None
 
 
 def test_profile_save_change_and_restore_through_the_daemon(tmp_path, capsys):

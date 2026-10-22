@@ -190,3 +190,37 @@ def test_a_failed_live_read_is_recorded_and_raised():
         assert h.events[0].kind == "read_failed" and h.events[0].data["block"] == "status"
 
     run(go())
+
+
+def test_a_read_failing_on_every_poll_is_logged_once_and_its_recovery_once(caplog):
+    async def go():
+        h = Harness()
+        device, _, _ = await h.manager.connect()
+        device.drop_next = 3
+        with caplog.at_level("DEBUG", logger="solarlife.poller"):
+            for _ in range(3):
+                with pytest.raises(TransactionTimeout):
+                    await h.poller.read(STATUS)
+            await h.poller.read(STATUS)
+            await h.poller.read(STATUS)
+        records = [r for r in caplog.records if r.name == "solarlife.poller"]
+        warnings = [r for r in records if r.levelname == "WARNING"]
+        assert len(warnings) == 1
+        assert warnings[0].getMessage().startswith(f"Cannot read status from {MAC}: TransactionTimeout: ")
+        assert [r.levelname for r in records if "Still cannot read status" in r.getMessage()] == ["DEBUG", "DEBUG"]
+        assert [r.getMessage() for r in records if r.levelname == "INFO"] == [f"Reading status from {MAC} works again"]
+
+    run(go())
+
+
+def test_a_read_error_of_another_kind_is_logged_again(caplog):
+    h = Harness()
+    exc = TransactionTimeout("first")
+    with caplog.at_level("DEBUG", logger="solarlife.poller"):
+        h.poller._read_failed(STATUS, MAC, exc)
+        h.poller._read_failed(STATUS, MAC, exc)
+        # a timeout's text names the bytes received so far: same kind, still a repeat
+        h.poller._read_failed(STATUS, MAC, TransactionTimeout("second"))
+        h.poller._read_failed(STATUS, MAC, OSError("gone"))
+        h.poller._read_failed(PARAMETERS, MAC, exc)  # another block is its own failure
+    assert [r.levelname for r in caplog.records] == ["WARNING", "DEBUG", "DEBUG", "WARNING", "WARNING"]

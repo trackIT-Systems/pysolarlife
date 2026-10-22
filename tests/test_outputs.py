@@ -187,3 +187,32 @@ def test_outputs_isolates_failing_sinks():
     outputs.emit_event(Event(WHEN, "x"))
     outputs.close()
     assert len(good.seen) == 1
+
+
+def test_a_sink_failing_on_every_reading_is_logged_once_and_its_recovery_once(caplog):
+    class Flaky:
+        broken = True
+
+        def emit_reading(self, r):
+            if self.broken:
+                raise RuntimeError("boom")
+
+        def emit_event(self, e): ...
+        def emit_state(self, s): ...
+        def close(self): ...
+
+    sink = Flaky()
+    outputs = Outputs([sink])
+    with caplog.at_level("DEBUG", logger="solarlife.outputs"):
+        for _ in range(3):
+            outputs.emit_reading(reading())
+        sink.broken = False
+        outputs.emit_reading(reading())
+        outputs.emit_reading(reading())
+    levels = [(r.levelname, r.getMessage()) for r in caplog.records if r.name == "solarlife.outputs"]
+    assert levels == [
+        ("ERROR", "Output Flaky failed in emit_reading: RuntimeError: boom"),
+        ("DEBUG", "Output Flaky failed again in emit_reading: RuntimeError: boom"),
+        ("DEBUG", "Output Flaky failed again in emit_reading: RuntimeError: boom"),
+        ("INFO", "Output Flaky works again in emit_reading"),
+    ]

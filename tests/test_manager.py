@@ -490,3 +490,80 @@ def test_a_reconnect_request_does_not_move_to_another_device():
             assert h.manager.device.address == A
 
     run(go())
+
+
+def manager_logs(caplog, level):
+    return [r for r in caplog.records if r.name == "solarlife.manager" and r.levelname == level]
+
+
+def test_repeated_connect_failures_are_logged_once_and_the_connect_once(caplog):
+    async def go():
+        backend = FakeBackend()
+        backend.scan_results = [{A: -60}]
+        backend.connect_script = [ConnectError("page timeout")] * 3 + [None]
+        with caplog.at_level("DEBUG", logger="solarlife.manager"):
+            async with Harness(backend, max_connect_failures=10) as h:
+                await until(lambda: h.manager.connected.is_set())
+        infos = [r.getMessage() for r in manager_logs(caplog, "INFO")]
+        assert infos.count(f"Cannot connect to {A}: page timeout") == 1
+        assert infos.count(f"Connected to {A} (RSSI -60 dBm)") == 1
+        repeats = [r for r in manager_logs(caplog, "DEBUG") if r.getMessage() == f"Cannot connect to {A}: page timeout"]
+        assert len(repeats) == 2
+        assert manager_logs(caplog, "WARNING") == []
+
+    run(go())
+
+
+def test_bluez_busy_is_warned_about_once(caplog):
+    async def go():
+        backend = FakeBackend()
+        backend.scan_results = [{A: -60}]
+        backend.connect_script = [ConnectError("busy", in_progress=True)] * 3 + [None]
+        with caplog.at_level("DEBUG", logger="solarlife.manager"):
+            async with Harness(backend, max_connect_failures=10) as h:
+                await until(lambda: h.manager.connected.is_set())
+        assert len(manager_logs(caplog, "WARNING")) == 1
+        assert "BlueZ is busy" in manager_logs(caplog, "WARNING")[0].getMessage()
+
+    run(go())
+
+
+def test_repeated_scan_failures_are_logged_once_and_the_recovery_once(caplog):
+    async def go():
+        backend = FakeBackend()
+        calls = {"n": 0}
+        original = backend.scan
+
+        async def flaky(duration, **kwargs):
+            calls["n"] += 1
+            if calls["n"] <= 3:
+                raise RuntimeError("adapter not ready")
+            return await original(duration, **kwargs)
+
+        backend.scan = flaky
+        backend.scan_results = [{A: -60}]
+        with caplog.at_level("DEBUG", logger="solarlife.manager"):
+            async with Harness(backend) as h:
+                await until(lambda: h.manager.connected.is_set())
+        warnings = [r.getMessage() for r in manager_logs(caplog, "WARNING")]
+        assert warnings == ["Scanning failed: RuntimeError: adapter not ready"]
+        assert [r.getMessage() for r in manager_logs(caplog, "INFO")].count("Scanning works again") == 1
+
+    run(go())
+
+
+def test_state_changes_are_logged_at_debug_and_a_lost_link_at_info(caplog):
+    async def go():
+        backend = FakeBackend()
+        backend.scan_results = [{A: -60}]
+        with caplog.at_level("DEBUG", logger="solarlife.manager"):
+            async with Harness(backend) as h:
+                await until(lambda: h.manager.connected.is_set())
+                backend.links[0].trigger_disconnect()
+                await until(lambda: len(backend.links) == 2 and h.manager.connected.is_set())
+        infos = [r.getMessage() for r in manager_logs(caplog, "INFO")]
+        assert not any("state" in m for m in infos)
+        assert any(m.startswith(f"Lost the connection to {A} after ") for m in infos)
+        assert any(r.getMessage() == "Connection state is now connected" for r in manager_logs(caplog, "DEBUG"))
+
+    run(go())
