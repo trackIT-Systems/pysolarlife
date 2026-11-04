@@ -14,8 +14,6 @@ class Output(Protocol):
 
     def emit_event(self, event: Event) -> None: ...
 
-    def emit_state(self, state: dict[str, Any]) -> None: ...
-
     def close(self) -> None: ...
 
 
@@ -35,10 +33,6 @@ class Outputs:
     def emit_event(self, event: Event) -> None:
         for sink in self.sinks:
             self._call(sink, "emit_event", event)
-
-    def emit_state(self, state: dict[str, Any]) -> None:
-        for sink in self.sinks:
-            self._call(sink, "emit_state", state)
 
     def close(self) -> None:
         for sink in self.sinks:

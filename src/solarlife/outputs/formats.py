@@ -1,9 +1,10 @@
 """One record (a reading or an event) and its CSV, JSON and CBOR encodings.
 
-All three carry the same columns in the same order: `time`, `synced`, `device`,
-then the block's columns (see columns.py). CBOR is a list without key names,
-the smallest over cellular; the column order is what the CSV header and the JSON
-keys show.
+Over MQTT, all three carry the same columns in the same order: `device`, then
+the block's columns (see columns.py). There is no time: a reading is a snapshot
+of now, and the receiver stamps it on arrival (tsOS-base docs/time.md). CBOR is
+a list without key names, the smallest over cellular; the column order is what
+the JSON keys show. The CSV files lead with `time`.
 """
 
 from __future__ import annotations
@@ -20,7 +21,6 @@ import cbor2
 from solarlife.columns import COLUMNS, EVENT_COLUMNS, row
 from solarlife.reading import Event, Reading
 
-LEADING_COLUMNS = ("time", "synced", "device")
 EVENTS = "events"
 
 
@@ -30,21 +30,27 @@ class Record:
     key: str
     columns: tuple[str, ...]
     values: tuple[Any, ...]
-    # Timezone-aware, whole seconds
+    # Timezone-aware, whole seconds; only in the CSV files
     time: datetime
-    # Whether the wall clock was synced when the record was emitted
+    # Whether `time` can be trusted (chrony has a source); the files only take trusted rows
     synced: bool
     device: str | None
-    # CLOCK_BOOTTIME of the reading; only used to re-time records taken before the sync
-    boottime: float
 
     @property
     def header(self) -> list[str]:
-        return [*LEADING_COLUMNS, *self.columns]
+        return ["device", *self.columns]
 
     @property
     def row(self) -> list[Any]:
-        return [self.time, self.synced, self.device, *self.values]
+        return [self.device, *self.values]
+
+    @property
+    def file_header(self) -> list[str]:
+        return ["time", *self.header]
+
+    @property
+    def file_row(self) -> list[Any]:
+        return [self.time, *self.row]
 
 
 def _second(when: datetime) -> datetime:
@@ -52,11 +58,11 @@ def _second(when: datetime) -> datetime:
 
 
 def reading_record(reading: Reading, synced: bool) -> Record:
-    return Record(reading.block, COLUMNS[reading.block], row(reading), _second(reading.time), synced, reading.device, reading.boottime)
+    return Record(reading.block, COLUMNS[reading.block], row(reading), _second(reading.time), synced, reading.device)
 
 
 def event_record(event: Event, synced: bool) -> Record:
-    return Record(EVENTS, EVENT_COLUMNS, (event.kind, event.detail()), _second(event.time), synced, event.device, event.boottime)
+    return Record(EVENTS, EVENT_COLUMNS, (event.kind, event.detail()), _second(event.time), synced, event.device)
 
 
 def _text(value: Any) -> Any:
@@ -79,7 +85,6 @@ def encode_json(record: Record) -> bytes:
 
 
 def encode_cbor(record: Record) -> bytes:
-    # A timezone-aware datetime is encoded as tag 0, an RFC 3339 string with offset.
     # canonical: each float in the smallest form that keeps it exact (24.0 in 3 bytes, not 9)
     return cbor2.dumps(record.row, canonical=True)
 

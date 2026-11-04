@@ -23,7 +23,7 @@ from solarlife.clock import Clock
 from solarlife.outputs.csv import CsvOutput
 from solarlife.outputs.mqtt import MqttOutput
 from solarlife.poller import Poller
-from solarlife.reading import Event, Value, local_iso, utc_iso
+from solarlife.reading import Event, Value, utc_iso
 from solarlife.registers import BLOCKS, Block, blocks_touched, build_write, plan_writes
 from solarlife.server import BadRequest, ControlServer
 from solarlife.state import Cache
@@ -96,17 +96,6 @@ class Daemon:
 
     def _on_state(self, state: ConnState) -> None:
         self._state_since = datetime.now().astimezone()
-        self.outputs.emit_state(self.state_payload())
-
-    def state_payload(self) -> dict[str, Any]:
-        device = self.manager.device if self.manager.session is not None else None
-        return {
-            "_time": local_iso(datetime.now().astimezone()),
-            "state": self.manager.state.value,
-            "device": device.address if device else None,
-            "rssi": round(self.manager.device_rssi) if device and self.manager.device_rssi is not None else None,
-            "since": utc_iso(self._state_since),
-        }
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -148,7 +137,6 @@ class Daemon:
         self.manager.stop()
         await asyncio.gather(manager_task, poller_task, return_exceptions=True)
         self._on_event(Event(datetime.now().astimezone(), "daemon_stopped"))
-        self.outputs.emit_state({**self.state_payload(), "state": "offline", "device": None, "rssi": None})
         self.outputs.close()
         log.info("Stopped")
 

@@ -129,20 +129,19 @@ def test_outputs_have_the_expected_content():
             rows = {key: list(csv.DictReader(path.read_text(encoding="utf-8").splitlines(), delimiter=";")) for key, path in files.items()}
             await env.stop()
             published = list(env.mqtt.published)
-            final_state = [(t, p, r) for t, p, r in published if t == "tracker/solarlife/state/json"][-1]
-            assert json.loads(final_state[1])["state"] == "offline" and final_state[2] is True
+            assert not any("/state/" in t for t, _, _ in published)
+            assert not any(retain for _, _, retain in published)
             kinds = {json.loads(p)["event"] for t, p, _ in published if t == "tracker/solarlife/events/json"}
             assert {"daemon_started", "connected", "scan_completed", "daemon_stopped"} <= kinds
             reading_json = [json.loads(p) for t, p, _ in published if t == "tracker/solarlife/a4c1386f0e2b/status/json"]
             reading_cbor = [cbor2.loads(p) for t, p, _ in published if t == "tracker/solarlife/a4c1386f0e2b/status/cbor"]
-            assert [list(r.values())[1:] for r in reading_json] == [r[1:] for r in reading_cbor]
+            assert [list(r.values()) for r in reading_json] == reading_cbor
+            assert "time" not in reading_json[0] and "synced" not in reading_json[0]
             assert reading_json[0]["battery_voltage_level"] == 24.0 and reading_json[0]["device"] == A
             assert any(t == "tracker/solarlife/a4c1386f0e2b/parameters/csv" for t, _, _ in published)
             assert set(rows) == {"status", "parameters", "events"}
             assert any(r["event"] == "connected" for r in rows["events"])
-            assert all(r["device"] == A and r["synced"] == "True" for r in rows["status"])
-            states = [json.loads(p)["state"] for t, p, _ in published if t == "tracker/solarlife/state/json"]
-            assert states[0] == "scanning" and "connected" in states and states[-1] == "offline"
+            assert all(r["device"] == A and r["time"] for r in rows["status"])
 
     run(go())
 

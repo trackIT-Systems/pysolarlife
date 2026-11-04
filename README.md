@@ -47,11 +47,11 @@ See [config/solarlife.yml](config/solarlife.yml) for all options (the default co
 
 Every block read (`status` once a minute, `parameters` once an hour) and every connection event go out over **MQTT** as CSV, JSON and CBOR, on `{host}/solarlife/{mac}/{block}/{csv,json,cbor}`, and into **CSV files**, one per block and day: `<csv.path>/<host>/solarlife/<block>/<host>_<date>_solarlife-<block>.csv`.
 
-- **Columns:** all formats carry the same ones: `time` (with UTC offset), `synced`, `device`, then the block's values under their names (`battery_voltage`, `solar_panel_power`, ...).
-- **CBOR** is a list in column order, about 200 bytes per `status` reading, for cellular links.
+- **Columns:** all formats carry the same ones: `device`, then the block's values under their names (`battery_voltage`, `solar_panel_power`, ...). The files add `time` first.
+- **No time over MQTT, nothing retained:** the receiver stamps a reading on arrival.
+- **CBOR** is a list in column order, about 175 bytes per `status` reading, for cellular links.
 - **Rate limit:** MQTT sends at most one reading per device and block every `mqtt.publish_interval_s` (300 s), always the newest. The files get every reading.
-- **Clock:** readings taken before the clock is synced are re-timed before they reach the files.
-- **State:** `{host}/solarlife/state/{json,cbor}` is retained, with `offline` as the last will.
+- **Clock:** the files only get readings taken once the clock is trusted; before that, readings only go over MQTT.
 
 Topics, columns with units, examples and the clock handling: [docs/outputs.md](docs/outputs.md).
 

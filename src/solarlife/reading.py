@@ -6,7 +6,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from solarlife.clock import boottime
 from solarlife.protocol import Result
 
 
@@ -53,8 +52,6 @@ class Reading:
     block: str
     time: datetime
     values: tuple[Value, ...]
-    # CLOCK_BOOTTIME when the reading was taken, to re-time it if the clock was not synced yet
-    boottime: float = field(default_factory=boottime)
 
     @classmethod
     def from_results(cls, device: str, block: str, when: datetime, results) -> Reading:
@@ -67,7 +64,6 @@ class Event:
     kind: str
     device: str | None = None
     data: dict[str, Any] = field(default_factory=dict)
-    boottime: float = field(default_factory=boottime)
 
     def detail(self) -> str:
         """Compact ``k=v`` text for the CSV."""
