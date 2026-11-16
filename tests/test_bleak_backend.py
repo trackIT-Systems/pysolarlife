@@ -52,6 +52,11 @@ def advertisement(rssi, manufacturer=True, local_name=None):
     return SimpleNamespace(rssi=rssi, manufacturer_data={MANUFACTURER_ID: b"\x10\x23"} if manufacturer else {0x004C: b"x"}, local_name=local_name)
 
 
+@pytest.fixture(autouse=True)
+def monitor_patch(monkeypatch):
+    monkeypatch.setattr(backend_module.passive, "install", lambda: True)  # tested in test_passive.py
+
+
 @pytest.fixture
 def scanner(monkeypatch):
     FakeScanner.instances, FakeScanner.script, FakeScanner.stop_error = [], [], None
@@ -91,10 +96,10 @@ def test_scan_ends_early_once_the_wanted_device_is_seen(scanner):
 def test_scan_passes_the_adapter_and_survives_a_failing_stop(scanner, monkeypatch):
     monkeypatch.setattr(backend_module.sys, "platform", "linux")
     scanner.stop_error = RuntimeError("stop failed")
-    assert run(BleakBackend("hci1").scan(0.01)) == {}
+    assert run(BleakBackend("hci1", scanning="active").scan(0.01)) == {}
     assert scanner.instances[0].kwargs == {"adapter": "hci1"}
     scanner.stop_error = None
-    run(BleakBackend().scan(0.01))
+    run(BleakBackend(scanning="active").scan(0.01))
     assert scanner.instances[1].kwargs == {}
 
 
@@ -315,9 +320,87 @@ def test_scan_names_a_macos_device_by_its_mac_address(scanner):
 
 def test_the_adapter_is_only_used_on_linux(scanner, monkeypatch, caplog):
     monkeypatch.setattr(backend_module.sys, "platform", "linux")
-    run(BleakBackend("hci1").scan(0.01))
+    run(BleakBackend("hci1", scanning="active").scan(0.01))
     assert scanner.instances[-1].kwargs == {"adapter": "hci1"}
     monkeypatch.setattr(backend_module.sys, "platform", "darwin")
     with caplog.at_level("WARNING"):
         run(BleakBackend("hci1").scan(0.01))
     assert scanner.instances[-1].kwargs == {} and "only used with BlueZ" in caplog.text
+
+
+# -- passive scanning ----------------------------------------------------------
+
+NO_MONITOR = BleakError("passive scanning on Linux requires BlueZ >= 5.56 with --experimental enabled and Linux kernel >= 5.10")
+
+
+def test_scans_passively_for_solarlife_manufacturer_data_on_bluez(scanner, monkeypatch):
+    monkeypatch.setattr(backend_module.sys, "platform", "linux")
+    scanner.script = [(device("A"), advertisement(-50))]
+    assert set(run(BleakBackend("hci0").scan(0.01))) == {"A"}
+    kwargs = scanner.instances[-1].kwargs
+    assert kwargs["scanning_mode"] == "passive" and kwargs["adapter"] == "hci0"
+    [(start, ad_type, content)] = kwargs["bluez"]["or_patterns"]
+    assert (start, int(ad_type), content) == (0, 0xFF, b"\xa0\x03")
+
+
+def failing_passive_start(monkeypatch, error):
+    async def start(self):
+        if self.kwargs.get("scanning_mode") == "passive":
+            raise error
+        self.started = True
+
+    monkeypatch.setattr(FakeScanner, "start", start)
+
+
+def test_falls_back_to_active_scanning_once_if_bluez_cannot_scan_passively(scanner, monkeypatch, caplog):
+    monkeypatch.setattr(backend_module.sys, "platform", "linux")
+    failing_passive_start(monkeypatch, NO_MONITOR)
+    backend = BleakBackend()
+    with caplog.at_level("WARNING"):
+        run(backend.scan(0.01))
+        run(backend.scan(0.01))
+    assert [s.kwargs.get("scanning_mode") for s in scanner.instances] == ["passive", None, None]
+    assert [r.message for r in caplog.records if "passively" in r.message] == [
+        f"BlueZ cannot scan passively, scanning actively: set Experimental = true in /etc/bluetooth/main.conf ({NO_MONITOR})"
+    ]
+
+
+@pytest.mark.parametrize(
+    "scanning, error",
+    [("passive", NO_MONITOR), ("auto", BleakError("adapter 'hci1' not found"))],
+)
+def test_other_scan_errors_and_a_forced_passive_scan_do_not_fall_back(scanner, monkeypatch, scanning, error):
+    monkeypatch.setattr(backend_module.sys, "platform", "linux")
+    failing_passive_start(monkeypatch, error)
+    with pytest.raises(BleakError):
+        run(BleakBackend(scanning=scanning).scan(0.01))
+    assert len(scanner.instances) == 1
+
+
+def test_active_scanning_when_configured_or_without_bluez(scanner, monkeypatch, caplog):
+    monkeypatch.setattr(backend_module.sys, "platform", "linux")
+    run(BleakBackend(scanning="active").scan(0.01))
+    monkeypatch.setattr(backend_module.sys, "platform", "darwin")
+    run(BleakBackend().scan(0.01))
+    with caplog.at_level("WARNING"):
+        run(BleakBackend(scanning="passive").scan(0.01))
+    assert [s.kwargs for s in scanner.instances] == [{}, {}, {}]
+    assert "ble.scanning: passive is only possible with BlueZ on Linux" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "scanning, mode, warning",
+    [
+        ("auto", None, "Cannot make bleak report every advertisement in a passive scan, scanning actively"),
+        ("passive", "passive", "Cannot make bleak report every advertisement in a passive scan: unchanged ones are reported once"),
+    ],
+)
+def test_without_the_monitor_patch_auto_scans_actively(scanner, monkeypatch, caplog, scanning, mode, warning):
+    monkeypatch.setattr(backend_module.sys, "platform", "linux")
+    monkeypatch.setattr(backend_module.passive, "install", lambda: False)
+    backend = BleakBackend(scanning=scanning)
+    with caplog.at_level("WARNING"):
+        run(backend.scan(0.01))
+        run(backend.scan(0.01))
+    assert [s.kwargs.get("scanning_mode") for s in scanner.instances] == [mode, mode]
+    assert [r.message for r in caplog.records] == [warning]

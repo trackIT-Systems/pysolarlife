@@ -8,7 +8,7 @@
 
 Opening a BLE connection is the unreliable step, especially on a Raspberry Pi whose Wi-Fi access point shares the radio with Bluetooth (one chip, one 2.4 GHz antenna). A connection that is already open is stable. So the daemon opens one connection, keeps it, and polls through it, instead of connecting for every reading.
 
-* It scans for SolarLife devices (manufacturer ID `0x03A0`) and connects to the one with the strongest signal. A rescan runs at a long interval while connected and switches device only if another one is clearly stronger (`switch_hysteresis_db`). `ble.address` pins a device.
+* It scans for SolarLife devices (manufacturer ID `0x03A0`) and connects to the one with the strongest signal. A rescan runs at a long interval while connected and switches device only if another one is clearly stronger (`switch_hysteresis_db`). `ble.address` pins a device. On Linux the scan is passive where BlueZ allows it (`ble.scanning`, bluetoothd with `Experimental = true`): no scan requests, and no random address that the controller refuses while the system itself advertises.
 * Scanning and connecting never overlap in the daemon: BlueZ rejects a connect while a scan runs (`org.bluez.Error.InProgress`). Failed connects are retried with a jittered, growing delay, and each retry scans first, because BlueZ forgets a device after a failed connect.
 * The `status` registers (`0x3030`, 41 registers) and the `parameters` registers (`0x9021`, 12 registers) are polled on separate intervals, and both are read right after every (re)connect. After `reconnect_after_failures` failed reads in a row the link is dropped and reopened.
 * A read never returns partial or empty data: it raises. Notifications nobody asked for are counted and ignored.

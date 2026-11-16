@@ -6,6 +6,14 @@ Only API that exists in bleak 0.22 (Debian) and 1.x is used.
   out a UUID that is only valid on that Mac); the advertisement carries it as manufacturer data,
   which is where it is read from then (see ``device_identity``).
 
+* Scans passively with BlueZ where bluetoothd offers ``AdvertisementMonitor1`` (with
+  ``Experimental = true``), actively elsewhere. A passive scan sends no scan requests: it needs
+  no random address, which the controller refuses while the station advertises (kernel error
+  ``Opcode 0x2005 failed: -16``, tsOS-base#50), and no scan response, which does not arrive
+  while the Pi's Wi-Fi access point is up. Name and manufacturer data are in the advertisement.
+  bleak alone would report an unchanged advertisement once; ``solarlife.ble.passive`` patches
+  that, and without that patch the scan is active.
+
 * Connects with the BLEDevice from a scan, never with an address string: bleak would
   otherwise run its own hidden scan first, which BlueZ may refuse while we scan.
 * A failed or cancelled connect always ends with a disconnect, so BlueZ is not left
@@ -23,9 +31,10 @@ from collections.abc import Callable
 from typing import Any
 
 from bleak import BleakClient, BleakScanner
+from bleak.assigned_numbers import AdvertisementDataType
 from bleak.exc import BleakDBusError, BleakDeviceNotFoundError, BleakError
 
-from solarlife.ble import MANUFACTURER_ID, NOTIFY_UUID, WRITE_UUID, Advertisement
+from solarlife.ble import MANUFACTURER_ID, NOTIFY_UUID, WRITE_UUID, Advertisement, passive
 from solarlife.errors import ConnectError, LinkError, NotConnectedError
 
 log = logging.getLogger(__name__)
@@ -34,6 +43,8 @@ MAC_ADDRESS = re.compile(r"^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$")
 SCANNER_STOP_TIMEOUT_S = 5.0
 DISCONNECT_TIMEOUT_S = 10.0
 CONNECT_GRACE_S = 5.0
+# What a passive scan reports: SolarLife's manufacturer data (the company ID, little endian)
+OR_PATTERNS = [(0, AdvertisementDataType.MANUFACTURER_SPECIFIC_DATA, MANUFACTURER_ID.to_bytes(2, "little"))]
 
 
 def device_identity(address: str, manufacturer_data: dict[int, bytes] | None) -> str:
@@ -48,6 +59,11 @@ def device_identity(address: str, manufacturer_data: dict[int, bytes] | None) ->
     if data is not None and len(data) == 6:
         return ":".join(f"{byte:02X}" for byte in data)
     return address
+
+
+def passive_unavailable(exc: BaseException) -> bool:
+    """bleak's error for a BlueZ without AdvertisementMonitor1 (bluetoothd without Experimental)."""
+    return isinstance(exc, BleakError) and "passive scanning" in str(exc).lower()
 
 
 def dbus_error_name(exc: BaseException) -> str:
@@ -103,9 +119,13 @@ class BleakLink:
 
 
 class BleakBackend:
-    def __init__(self, adapter: str | None = None) -> None:
+    def __init__(self, adapter: str | None = None, scanning: str = "auto") -> None:
         self._adapter = adapter
+        self._scanning = scanning
+        self._passive = scanning != "active"  # until BlueZ turns out not to offer it
         self._warned_adapter = False
+        self._warned_scanning = False
+        self._patched = False  # solarlife.ble.passive installed, or found missing
 
     def _kwargs(self) -> dict[str, Any]:
         if not self._adapter:
@@ -116,6 +136,40 @@ class BleakBackend:
                 self._warned_adapter = True
             return {}
         return {"adapter": self._adapter}
+
+    def _scan_kwargs(self) -> dict[str, Any]:
+        if not self._passive:
+            return self._kwargs()
+        if not sys.platform.startswith("linux"):
+            if self._scanning == "passive" and not self._warned_scanning:
+                log.warning("ble.scanning: passive is only possible with BlueZ on Linux, scanning actively")
+                self._warned_scanning = True
+            return self._kwargs()
+        if not self._patched:
+            self._patched = True  # tried once
+            if not passive.install():
+                if self._scanning == "auto":
+                    self._passive = False
+                    log.warning("Cannot make bleak report every advertisement in a passive scan, scanning actively")
+                    return self._kwargs()
+                log.warning("Cannot make bleak report every advertisement in a passive scan: unchanged ones are reported once")
+        return {**self._kwargs(), "scanning_mode": "passive", "bluez": {"or_patterns": OR_PATTERNS}}
+
+    async def _start_scanner(self, on_detect: Callable[[Any, Any], None]) -> Any:
+        scanner = BleakScanner(detection_callback=on_detect, **self._scan_kwargs())
+        try:
+            await scanner.start()
+        except BleakError as exc:
+            if not (self._passive and self._scanning == "auto" and passive_unavailable(exc)):
+                raise
+            self._passive = False
+            log.warning(
+                "BlueZ cannot scan passively, scanning actively: set Experimental = true in /etc/bluetooth/main.conf (%s)",
+                exc,
+            )
+            scanner = BleakScanner(detection_callback=on_detect, **self._scan_kwargs())
+            await scanner.start()
+        return scanner
 
     async def scan(self, duration_s: float, *, until_address: str | None = None) -> dict[str, Advertisement]:
         seen: dict[str, dict[str, Any]] = {}
@@ -134,8 +188,7 @@ class BleakBackend:
             if until_address is not None and identity == until_address:
                 found.set()
 
-        scanner = BleakScanner(detection_callback=on_detect, **self._kwargs())
-        await scanner.start()
+        scanner = await self._start_scanner(on_detect)
         try:
             try:
                 await asyncio.wait_for(found.wait(), duration_s)

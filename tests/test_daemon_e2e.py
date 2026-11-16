@@ -307,7 +307,7 @@ def test_main_reports_startup_problems_without_a_traceback(tmp_path, caplog, mon
     blocked.write_text("x")  # a file where the csv directory should be created
     config = tmp_path / "c.yml"
     config.write_text(f"daemon:\n  socket: tcp://127.0.0.1:{free_port()}\n  csv: {{path: {blocked}}}\n  mqtt: {{enabled: false}}\n")
-    monkeypatch.setattr("solarlife.ble.bleak_backend.BleakBackend", lambda adapter=None: FakeBackend())
+    monkeypatch.setattr("solarlife.ble.bleak_backend.BleakBackend", lambda adapter=None, scanning="auto": FakeBackend())
     assert daemon.main(["--config", str(config)]) == 1
     [record] = [r for r in caplog.records if r.levelno == logging.CRITICAL]
     assert record.name == "solarlife.daemon" and record.getMessage().startswith("Cannot continue: ")

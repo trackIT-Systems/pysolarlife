@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- **Passive scanning.** On Linux, scans are passive where BlueZ offers `AdvertisementMonitor1` (bluetoothd with `Experimental = true`), matching SolarLife's manufacturer data. A passive scan sends no scan requests, so it no longer needs a random address, which the Pi's controller refuses while the station advertises: the kernel logged `Bluetooth: hci0: Opcode 0x2005 failed: -16` at every search scan (tsOS-base#50). bleak reports an advertisement in a passive scan only when its data changes, and a SolarLife's never does (its MAC address); BlueZ calls `DeviceFound` on the advertisement monitor for every advert, so the daemon replaces bleak's monitor class at runtime (in its own process, bleak's files are unchanged) by one that reports each of them. Without the bleak internals this needs, `auto` scans actively. `ble.scanning` chooses: `auto` (default: passive, else active with one warning), `passive` (no fallback) or `active`. macOS and Windows always scan actively.
+
 ### Changed
 
 - **Logging.** Under systemd, records go to the journal through `python3-systemd`'s `JournalHandler` (Debian package `python3-systemd`) instead of an own implementation of the native protocol. The fields are the same, plus `LOGGER`, `THREAD_NAME`, `PROCESS_NAME`, `CODE_ARGS` and, with a traceback, `EXCEPTION_TEXT`; messages over 32 KiB are no longer cut. Without `python3-systemd` (macOS) it logs to stderr (tsOS-base#44).

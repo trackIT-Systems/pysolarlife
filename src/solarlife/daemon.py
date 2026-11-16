@@ -73,7 +73,7 @@ class Daemon:
         if backend is None:
             from solarlife.ble.bleak_backend import BleakBackend
 
-            backend = BleakBackend(config.ble.adapter)
+            backend = BleakBackend(config.ble.adapter, config.ble.scanning)
         self.outputs = outputs if outputs is not None else build_outputs(config, self.hostname)
         self.cache = Cache(config.polling)
         self.manager = ConnectionManager(

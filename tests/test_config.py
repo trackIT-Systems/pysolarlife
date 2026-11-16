@@ -48,6 +48,7 @@ def test_overrides():
         {"ble": {"scan_duration_s": 0}},
         {"ble": {"scan_duration_s": "ten"}},
         {"ble": {"request_attempts": 0}},
+        {"ble": {"scanning": "quiet"}},
         {"ble": []},
         {"polling": {"status_interval_s": -1}},
         {"daemon": {"log_level": "LOUD"}},

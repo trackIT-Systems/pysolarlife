@@ -12,6 +12,7 @@ from solarlife.platform import DEFAULTS
 DEFAULT_CONFIG_PATH = DEFAULTS.config
 DEFAULT_SOCKET_PATH = DEFAULTS.socket  # a path, or tcp://127.0.0.1:port where there are no Unix sockets
 DEFAULT_DATA_DIR = DEFAULTS.data_dir
+SCANNING_MODES = ("auto", "passive", "active")
 
 
 @dataclass(frozen=True)
@@ -31,6 +32,7 @@ class BleConfig:
     max_connect_failures: int = 10
     request_timeout_s: float = 2.0
     request_attempts: int = 3
+    scanning: str = "auto"  # auto: passive where BlueZ offers it, else active; passive; active
 
 
 @dataclass(frozen=True)
@@ -164,6 +166,9 @@ def _parse_ble(raw: dict[str, Any]) -> BleConfig:
     address = _str(raw, "address", d.address, "ble")
     if address is not None:
         address = address.upper()
+    scanning = raw.get("scanning", d.scanning)
+    if scanning not in SCANNING_MODES:
+        raise ConfigError(f"ble.scanning must be one of: {', '.join(SCANNING_MODES)}")
     return BleConfig(
         adapter=_str(raw, "adapter", d.adapter, "ble"),
         address=address,
@@ -180,6 +185,7 @@ def _parse_ble(raw: dict[str, Any]) -> BleConfig:
         max_connect_failures=_int(raw, "max_connect_failures", d.max_connect_failures, "ble"),
         request_timeout_s=_float(raw, "request_timeout_s", d.request_timeout_s, "ble"),
         request_attempts=_int(raw, "request_attempts", d.request_attempts, "ble"),
+        scanning=scanning,
     )
 
 
