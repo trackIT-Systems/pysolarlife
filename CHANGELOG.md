@@ -4,20 +4,30 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-18
+
+**Breaking: the MQTT and CSV outputs are new** (see Changed and [docs/outputs.md](docs/outputs.md)). Readings and events go out with fixed columns as CSV, JSON and CBOR, without time and display texts; the retained `state` topic is gone; the CSV files are one file per block and day. Consumers of the 1.0 outputs must be adapted; tsOS brings this version with the tsOS release that announces the change. This is the one exception to semantic versioning: the CLI, the config and the control socket stay compatible with 1.0, and from 1.1.0 on the outputs are covered too: columns are only appended ([docs/releasing.md](docs/releasing.md), [docs/outputs.md](docs/outputs.md#compatibility)).
+
 ### Added
 
-- **Passive scanning.** On Linux, scans are passive where BlueZ offers `AdvertisementMonitor1` (bluetoothd with `Experimental = true`), matching SolarLife's manufacturer data. A passive scan sends no scan requests, so it no longer needs a random address, which the Pi's controller refuses while the station advertises: the kernel logged `Bluetooth: hci0: Opcode 0x2005 failed: -16` at every search scan (tsOS-base#50). bleak reports an advertisement in a passive scan only when its data changes, and a SolarLife's never does (its MAC address); BlueZ calls `DeviceFound` on the advertisement monitor for every advert, so the daemon replaces bleak's monitor class at runtime (in its own process, bleak's files are unchanged) by one that reports each of them. Without the bleak internals this needs, `auto` scans actively. `ble.scanning` chooses: `auto` (default: passive, else active with one warning), `passive` (no fallback) or `active`. macOS and Windows always scan actively.
+- **Passive scanning.** On Linux, scans are passive where BlueZ offers `AdvertisementMonitor1` (bluetoothd with `Experimental = true`), matching SolarLife's manufacturer data. A passive scan sends no scan requests, so it no longer needs a random address, which the Pi's controller refuses while the station advertises: the kernel logged `Bluetooth: hci0: Opcode 0x2005 failed: -16` at every search scan (tsOS-base#50). bleak reports an advertisement in a passive scan only when its data changes, and a SolarLife's never does (its MAC address); BlueZ calls `DeviceFound` on the advertisement monitor for every advert, so the daemon replaces bleak's monitor class at runtime (in its own process, bleak's files are unchanged) by one that reports each of them. Without the bleak internals this needs, `auto` scans actively. `ble.scanning` chooses: `auto` (default: passive, else active with one warning), `passive` (no fallback) or `active`. macOS and Windows always scan actively. Fixes [#2](https://github.com/trackIT-Systems/pysolarlife/issues/2).
+- **MIT license holders** ([LICENSE](LICENSE)): the notice of the client this project started from stays, the rewrite's is added.
+- **Coverage in CI**: Linux runs every test, the passive scan's included, and fails below 89 % coverage.
+
+### Fixed
+
+- **Retry delays overflowed.** After 1024 failed connects without a link that stayed up (a controller in range that cannot be connected while the Wi-Fi access point is up), the delay calculation raised `OverflowError(34, 'Numerical result out of range')` and the daemon exited. The retry count no longer grows once the delay has reached its maximum, as in pysmartsolar (pysmartsolar#4).
+- **`Future exception was never retrieved` (ERROR) after a lost link.** When the link was lost while a request was being written, the pending response got the `link lost during request` error, the write failed, and nobody awaited the response any more; asyncio logged it with a traceback. The pending response is now cancelled or its error retrieved whenever a request ends.
 
 ### Changed
 
-- **Logging.** Under systemd, records go to the journal through `python3-systemd`'s `JournalHandler` (Debian package `python3-systemd`) instead of an own implementation of the native protocol. The fields are the same, plus `LOGGER`, `THREAD_NAME`, `PROCESS_NAME`, `CODE_ARGS` and, with a traceback, `EXCEPTION_TEXT`; messages over 32 KiB are no longer cut. Without `python3-systemd` (macOS) it logs to stderr (tsOS-base#44).
+- **Logging.** Under systemd, `solarlifed` logs to the journal through `python3-systemd`'s `JournalHandler` (Debian package `python3-systemd`), each entry with its syslog priority, `SYSLOG_IDENTIFIER` `solarlifed`, the source location (`CODE_FILE`, `CODE_LINE`, `CODE_FUNC`), `LOGGER`, `THREAD_NAME`, `PROCESS_NAME`, `CODE_ARGS` and, with a traceback, `EXCEPTION_TEXT`; the message is `<logger>: <message>`. Before, every line went through stderr and was stored as `info`. Without `python3-systemd` (macOS) and on a terminal it logs to stderr as before (tsOS-base#44).
 - **Output formats.** Every reading and event goes out over MQTT as CSV, JSON and CBOR (`mqtt.csv`, `mqtt.json`, `mqtt.cbor`). All three carry the same fixed columns: `device`, then the block's values under their names. They carry no time (the receiver stamps a reading on arrival, tsOS-base docs/time.md), and nothing is retained. The display texts with units (`"Battery voltage (V)"`) are gone from all outputs; units are documented per column in [docs/outputs.md](docs/outputs.md). CBOR is a list in column order with each number in its smallest exact form: a `status` reading is about 175 bytes instead of 1500. Readings are published on `{host}/solarlife/{mac}/{block}/{fmt}` (the block decides the columns), events on `{host}/solarlife/events/{fmt}`. The retained `state` topic and its `offline` last will are gone: a silent controller shows as missing readings, and connection changes are events.
 - **MQTT rate limit.** `mqtt.publish_interval_s` (default 300 s) allows at most one reading per device and block in that time, always the newest; `0` publishes every reading. Events and files are not limited.
 - **CSV files.** One file per block and calendar day, `<csv.path>/<host>/solarlife/<block>/<host>_<YYYY-MM-DD>_solarlife-<block>.csv`, with `time` (UTC offset) first, then the MQTT columns; events in `.../events/`. This replaces one long-format file per daemon start.
 - **Clock.** Rows reach the CSV files only once the clock is trusted (the kernel's `adjtimex` state: chrony has a source, NTP, GNSS or the checked RTC). Before that, readings only go over MQTT; there is no spool and no re-timing.
 - The default config file on Linux is `/etc/solarlife/solarlife.yml` (was `/boot/firmware/solarlife.yml`). A system that keeps the file elsewhere passes `--config`.
 - **Default log level WARNING.** `daemon.log_level` defaults to `WARNING` (was `INFO`), as do the shipped configs, following tsOS's logging convention: a working station logs nothing in normal operation. `-v` still turns on DEBUG.
-- **Logging.** Under systemd `solarlifed` logs to the journal directly, each entry with its syslog priority, `SYSLOG_IDENTIFIER` `solarlifed` and `CODE_FILE`/`CODE_LINE`/`CODE_FUNC`; the message is `<logger>: <message>`. Before, every line went through stderr and was stored as `info`. Elsewhere it still logs to stderr.
 - **Quiet logging.** A failure that repeats on every poll or retry (a block that cannot be read, the reconnect after failed reads, a failed connect, BlueZ being busy, a stale device handle, a failed scan, an output that fails) is logged once when it starts, again only when its error changes, and once when it works again (`Reading status from ... works again`, `Connected to ...`, `Scanning works again`); the repeats are at DEBUG. State changes of the connection are at DEBUG; connected and a lost connection are logged at INFO. Configuration errors and fatal errors at startup are logged at CRITICAL through the journal instead of printed to stderr (exit code 1 as before). Loggers are named after their modules (`solarlife.daemon` instead of `solarlifed`), and messages are capitalized sentences (`Listening on the control socket ...` instead of `control socket ...`).
 
 ## [1.0.0] - 2026-10-14
@@ -53,7 +63,7 @@ A rewrite: from a library for one-shot reads to a daemon and a CLI. It breaks wi
 
 ### Known issues
 
-- [#2](https://github.com/trackIT-Systems/pysolarlife/issues/2), `Bluetooth: hci0: Opcode 0x2005 failed: -16` in the kernel log while scanning, is **not fixed**: bleak's passive scanning needs kernel-level advertisement filtering that is not available. The daemon scans far less than the old client did (a scan of `ble.scan_duration_s` at `ble.rescan_interval_s`, 3600 s by default, while connected), so the messages are rare: on the test Raspberry Pi they appear about once per rescan.
+- [#2](https://github.com/trackIT-Systems/pysolarlife/issues/2), `Bluetooth: hci0: Opcode 0x2005 failed: -16` in the kernel log while scanning, is **not fixed** (fixed in 1.1.0 by passive scanning): bleak's passive scanning needs kernel-level advertisement filtering that is not available. The daemon scans far less than the old client did (a scan of `ble.scan_duration_s` at `ble.rescan_interval_s`, 3600 s by default, while connected), so the messages are rare: on the test Raspberry Pi they appear about once per rescan.
 
 ## [0.3.0] - 2026-02-27
 
@@ -91,6 +101,7 @@ The version of the refactoring into a package (the project began in 2023 as a fo
 
 - The standalone MQTT / Home Assistant program became a library; the Home Assistant bridge was removed.
 
+[1.1.0]: https://github.com/trackIT-Systems/pysolarlife/releases/tag/v1.1.0
 [1.0.0]: https://github.com/trackIT-Systems/pysolarlife/releases/tag/v1.0.0
 [0.3.0]: https://github.com/trackIT-Systems/pysolarlife/releases/tag/v0.3.0
 [0.2.0]: https://github.com/trackIT-Systems/pysolarlife/releases/tag/v0.2.0
