@@ -126,9 +126,20 @@ class DeviceSession:
                 last = exc
             finally:
                 self._pending = None
+                self._forget(pending)
             log.debug("Request failed: %s", last)
         assert last is not None
         raise last
+
+    @staticmethod
+    def _forget(pending: _Pending) -> None:
+        """Nobody waits for the response any more (answered, timed out or the write failed)."""
+        if not pending.future.done():
+            pending.future.cancel()
+        elif not pending.future.cancelled():
+            # A lost link gives it its error (on_disconnect, often during the failing write):
+            # retrieve it, or asyncio logs "Future exception was never retrieved"
+            pending.future.exception()
 
     # -- notifications ------------------------------------------------------
 
