@@ -1,6 +1,12 @@
 # solarlife
 
-`solarlifed` is a daemon that keeps a Bluetooth Low Energy connection to a SolarLife MPPT solar charge controller, polls its registers and reports them to a CSV file and to MQTT (JSON and CBOR). `solarlife` is a command line tool that talks to the running daemon: cached and live values, writes, reconnect, scan.
+[![Tests](https://github.com/trackIT-Systems/pysolarlife/actions/workflows/ci.yml/badge.svg)](https://github.com/trackIT-Systems/pysolarlife/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/trackIT-Systems/pysolarlife)](https://github.com/trackIT-Systems/pysolarlife/releases/latest)
+[![Python](https://img.shields.io/badge/python-3.12%20%7C%203.13%20%7C%203.14-blue)](pyproject.toml)
+[![Platforms](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)](docs/platforms.md)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
+`solarlifed` is a daemon that keeps a Bluetooth Low Energy connection to a SolarLife MPPT solar charge controller, polls its registers and reports them to daily CSV files and to MQTT (CSV, JSON and CBOR). `solarlife` is a command line tool that talks to the running daemon: cached and live values, writes, reconnect, scan.
 
 > **The BLE protocol was reverse engineered. Writing registers can change charging behaviour and erase statistics. Use `write` only if you understand what a register does.**
 
@@ -19,7 +25,7 @@ Opening a BLE connection is the unreliable step, especially on a Raspberry Pi wh
 Python 3.12+, `bleak`, `paho-mqtt`, `cbor2`, `PyYAML` (all available as Debian `python3-*` packages). Releases are on the [releases page](https://github.com/trackIT-Systems/pysolarlife/releases) (wheel and source archive; see [CHANGELOG.md](CHANGELOG.md)):
 
 ```bash
-pip install https://github.com/trackIT-Systems/pysolarlife/releases/download/v1.0.0/solarlife-1.0.0-py3-none-any.whl
+pip install https://github.com/trackIT-Systems/pysolarlife/releases/download/v1.1.0/solarlife-1.1.0-py3-none-any.whl
 ```
 
 From a checkout:
@@ -41,7 +47,7 @@ solarlifed                                   # reads /etc/solarlife/solarlife.ym
 solarlifed --config ./config/solarlife.yml -v
 ```
 
-See [config/solarlife.yml](config/solarlife.yml) for all options (the default config path, socket and CSV directory depend on the system, see [docs/platforms.md](docs/platforms.md)). On Linux it needs access to BlueZ over D-Bus and write access to the CSV directory. SIGTERM disconnects cleanly and publishes the state `offline`.
+See [config/solarlife.yml](config/solarlife.yml) for all options (the default config path, socket and CSV directory depend on the system, see [docs/platforms.md](docs/platforms.md)). On Linux it needs access to BlueZ over D-Bus and write access to the CSV directory. SIGTERM disconnects cleanly and sends the event `daemon_stopped`.
 
 ### Output
 
@@ -108,4 +114,4 @@ The BLE protocol was reverse engineered by [subDesTagesMitExtraKaese](https://gi
 
 ## License
 
-MIT
+MIT, see [LICENSE](LICENSE). The client this project started from is MIT licensed too; its copyright notice is kept in the license file.
