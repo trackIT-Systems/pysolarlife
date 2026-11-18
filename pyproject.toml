@@ -24,6 +24,8 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8",
+    "pytest-cov",
+    "dbus-fast; sys_platform == 'linux'",  # the passive scan's tests
 ]
 
 [project.urls]
@@ -45,3 +47,11 @@ solarlife = ["premade/*.yml"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+[tool.coverage.run]
+source = ["solarlife"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true

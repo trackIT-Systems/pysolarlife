@@ -1,3 +1,4 @@
 *.pyc
 venv/
 solarlife.egg-info
+.coverage
