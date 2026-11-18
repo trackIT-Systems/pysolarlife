@@ -38,6 +38,12 @@ and the start of the same reading as JSON:
 {"device": "A4:C1:38:6F:0E:2B", "equipment_id": 1.0, "run_days": 0.0, "battery_voltage_level": 24.0, "battery_temperature_protection_status": "Normal", "battery_voltage_protection_status": "Normal", "…": "…"}
 ```
 
+### Compatibility
+
+From 1.1.0 on and within a major version, columns are only appended to a block: none is removed, renamed or moved, and none changes its unit or meaning. A new column is a minor version (see [releasing.md](releasing.md)). The same holds for the event columns, and for event names and `detail` keys, which are only added.
+
+The messages carry no schema version, because the number of columns tells which ones there are: a CBOR array of n values holds the first n columns of its block below. A consumer decodes by position, ignores values beyond the columns it knows, and treats columns missing from a shorter array (from an older daemon) as null; JSON consumers ignore unknown keys. In the CSV files, a daemon that is updated during the day appends longer rows to a file whose header has fewer columns; the header is a prefix of the newer columns.
+
 ### Rate limit
 
 `mqtt.publish_interval_s` (300 s by default) allows at most one MQTT message per device and block in that time.
