@@ -62,6 +62,14 @@ def test_backoff_grows_is_capped_and_resets():
     assert b.next() == 2
 
 
+def test_backoff_stays_at_the_maximum_without_overflowing():
+    b = Backoff(2, 30, rng=lambda: 1.0)
+    for _ in range(5000):  # 2.0**1024 raised OverflowError after 1024 failed connects
+        assert b.next() <= 30
+    b.reset()
+    assert b.next() == 2
+
+
 def test_backoff_jitter_and_floor():
     b = Backoff(2, 10, rng=lambda: 0.5)
     assert b.next() == 1.0

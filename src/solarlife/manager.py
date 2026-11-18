@@ -62,7 +62,8 @@ class Backoff:
 
     def next(self, floor: float = 0.0) -> float:
         ceiling = min(self.maximum, self.initial * self.factor**self.attempt)
-        self.attempt += 1
+        if ceiling < self.maximum:  # beyond the cap, a growing exponent only overflows (2.0**1024)
+            self.attempt += 1
         return max(floor, self._rng() * ceiling)
 
     def reset(self) -> None:
