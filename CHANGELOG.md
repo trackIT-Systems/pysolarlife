@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-11-24
+
+### Fixed
+
+- **No crash loop without a writable CSV directory.** The daemon created the CSV directory at startup and exited when it could not (`Cannot continue: [Errno 13] Permission denied: '/data/<host>'`), so a station without a data volume, where `/data` is not writable, restarted it every few seconds and got no readings over MQTT either. The directory is now made with the first row; while the files can't be written, the readings go over MQTT only, and this is logged once at WARNING when it starts and at INFO when files are written again ([docs/outputs.md](docs/outputs.md#csv-files)).
+
 ## [1.1.0] - 2026-11-18
 
 **Breaking: the MQTT and CSV outputs are new** (see Changed and [docs/outputs.md](docs/outputs.md)). Readings and events go out with fixed columns as CSV, JSON and CBOR, without time and display texts; the retained `state` topic is gone; the CSV files are one file per block and day. Consumers of the 1.0 outputs must be adapted; tsOS brings this version with the tsOS release that announces the change. This is the one exception to semantic versioning: the CLI, the config and the control socket stay compatible with 1.0, and from 1.1.0 on the outputs are covered too: columns are only appended ([docs/releasing.md](docs/releasing.md), [docs/outputs.md](docs/outputs.md#compatibility)).
@@ -101,6 +107,7 @@ The version of the refactoring into a package (the project began in 2023 as a fo
 
 - The standalone MQTT / Home Assistant program became a library; the Home Assistant bridge was removed.
 
+[1.1.1]: https://github.com/trackIT-Systems/pysolarlife/releases/tag/v1.1.1
 [1.1.0]: https://github.com/trackIT-Systems/pysolarlife/releases/tag/v1.1.0
 [1.0.0]: https://github.com/trackIT-Systems/pysolarlife/releases/tag/v1.0.0
 [0.3.0]: https://github.com/trackIT-Systems/pysolarlife/releases/tag/v0.3.0

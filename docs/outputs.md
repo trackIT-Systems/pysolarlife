@@ -145,6 +145,8 @@ This matches the readings only (`{host}/solarlife/{mac}/{block}/cbor`). Add `top
 
 The files are `;` separated, with the lines of the MQTT CSV after `time` and a header row at the top. They are only appended to, never rotated or deleted.
 
+The directory is made with the first row. If the files can't be written (a station whose data volume is missing, so `/data` is not writable), `solarlifed` keeps running and the readings only go over MQTT; their rows are dropped, not kept for later. The start is logged once at WARNING (again if the error changes), the end once at INFO, when the next row is written, for example after a USB disk was mounted on `/data`.
+
 ## Clock
 
 A station can run with an untrusted clock for a while (no network, no GNSS, no checked RTC), and `solarlifed` does not wait for it. Rows for the files need a time that can be trusted, so they are only written once the clock is:
